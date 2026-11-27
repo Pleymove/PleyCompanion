@@ -78,7 +78,6 @@ public sealed class AppComposition : ICompanionHost, IDisposable
 
         RegisterLocalModels(platform.Processes, platform.MainThread);
         SpeechVoiceServices.Current = SpeechVoiceServices.ForThisPC(platform.SystemVoice);
-        if (KokoroVoice.Shared is { } kokoro) kokoro.IsCurrentVoice = () => SpeechVoiceChoices.Current() == SpeechVoiceChoice.Kokoro;
 
         spaceStore = new DictationSpaceStore();
         try { takeStore = new TakeStore(OpenClickyPaths.DictationDatabaseFile); }
@@ -169,9 +168,10 @@ public sealed class AppComposition : ICompanionHost, IDisposable
     public static void RegisterLocalModels(IProcessRunner processes, IMainThread? mainThread)
     {
         var helperPath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, AppIdentity.ExecutableName);
-        KokoroVoice.Shared ??= new KokoroVoice(processes, helperPath, mainThread);
+        var models = VoiceModelRuntime.Shared ??= new VoiceModelRuntime(processes, helperPath, mainThread);
+        KokoroVoice.Shared ??= (KokoroVoice?)models.FindVoice(SpeechVoiceChoice.Kokoro);
         MoonshineDictation.Shared ??= new MoonshineDictation(processes, helperPath);
-        ParakeetDictation.Shared ??= new ParakeetDictation(processes, helperPath, mainThread);
+        ParakeetDictation.Shared ??= models.FindRecognizer(VoiceModelCatalog.ParakeetV3);
     }
 
     public void Start()
@@ -247,6 +247,8 @@ public sealed class AppComposition : ICompanionHost, IDisposable
                 KokoroVoice.Shared is { } kokoro ? ModelDownloadRow.For(kokoro, platform.MainThread) : new DetachedModelDownload(KokoroVoice.DownloadSizeText),
                 ParakeetDictation.Shared is { } parakeet ? ModelDownloadRow.For(parakeet, platform.MainThread) : new DetachedModelDownload(ParakeetDictation.DownloadSizeText),
                 new AudioPlayer()),
+            VoiceModels = VoiceModelRuntime.Shared,
+            AssistantLocalSttId = () => OnDeviceHearingProvider.LocalModelId(Companion.BuddyDictationManager.TranscriptionProvider),
             TourPointer = Companion.SettingsTourPointer,
             TourNarrator = new RecordedVoiceTourNarrator(Companion.RecordedVoice),
             LoginItem = platform.LoginItem,

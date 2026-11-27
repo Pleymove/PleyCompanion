@@ -13,7 +13,7 @@ namespace OpenClicky.Core.Speech;
 public sealed class OnDeviceHearingProvider(IOfflineSpeechRecognizer offlineRecognizer) : IBuddyTranscriptionProvider
 {
     private readonly ParakeetTranscriptionProvider parakeetProvider = new(() =>
-        DictationEngineResolver.ParakeetUnavailableReason(ParakeetFacts.IsInstalled, ReplyLanguage.CurrentCode));
+        ParakeetDictation.UnavailableReason(ReplyLanguage.CurrentCode));
     private readonly MoonshineTranscriptionProvider moonshineProvider = new(() =>
         DictationEngineResolver.MoonshineUnavailableReason(MoonshineFacts.IsInstalled, ReplyLanguage.CurrentCode));
     private readonly WindowsSpeechTranscriptionProvider windowsSpeechProvider = new(offlineRecognizer);
@@ -22,6 +22,14 @@ public sealed class OnDeviceHearingProvider(IOfflineSpeechRecognizer offlineReco
         parakeetProvider.IsConfigured ? parakeetProvider
         : moonshineProvider.IsConfigured ? moonshineProvider
         : windowsSpeechProvider;
+
+    public static string? LocalModelId(IBuddyTranscriptionProvider provider) => provider switch
+    {
+        OnDeviceHearingProvider local => LocalModelId(local.Current),
+        ParakeetTranscriptionProvider parakeet when parakeet.IsConfigured => ParakeetDictation.SelectedModel.Info.Id,
+        MoonshineTranscriptionProvider moonshine when moonshine.IsConfigured => VoiceModelCatalog.Moonshine.Id,
+        _ => null,
+    };
 
     public string DisplayName => Current.DisplayName;
     public bool RequiresSpeechRecognitionPermission => Current.RequiresSpeechRecognitionPermission;

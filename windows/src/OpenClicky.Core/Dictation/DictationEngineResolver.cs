@@ -66,8 +66,9 @@ public static class DictationEngineResolver
                 return MoonshineUnavailableReason(moonshineInstalled ?? MoonshineFacts.IsInstalled,
                     bareLanguageCode is null ? DictationSettings.StoredLanguage().BareCode : bareLanguageCode());
             case DictationEngineChoice.Parakeet:
-                return ParakeetUnavailableReason(parakeetInstalled ?? ParakeetFacts.IsInstalled,
-                    bareLanguageCode is null ? DictationSettings.StoredLanguage().BareCode : bareLanguageCode());
+                var language = bareLanguageCode is null ? DictationSettings.StoredLanguage().BareCode : bareLanguageCode();
+                return parakeetInstalled is { } installed ? ParakeetUnavailableReason(installed, language)
+                    : ParakeetDictation.UnavailableReason(language);
             case DictationEngineChoice.Sarvam:
                 return SarvamUnavailableReason(sarvamKey);
             default:
@@ -82,10 +83,11 @@ public static class DictationEngineResolver
     /// Parakeet's half of `UnavailableReason`. Its provider reads the same function, so the provider
     /// and the resolver can never disagree about whether Parakeet can run.
     /// </summary>
-    public static string? ParakeetUnavailableReason(bool isInstalled, string? bareLanguageCode)
+    public static string? ParakeetUnavailableReason(bool isInstalled, string? bareLanguageCode, LocalSttModel? model = null)
     {
         if (!ParakeetFacts.Hears(bareLanguageCode)) return ParakeetLanguageNotHeardReason;
-        return isInstalled ? null : $"Téléchargez Parakeet ({ParakeetFacts.DownloadSizeText}) dans les paramètres de dictée.";
+        model ??= VoiceModelCatalog.ParakeetV3;
+        return isInstalled ? null : $"Téléchargez {model.Info.Name} ({model.Info.Size}) dans Reconnaissance vocale.";
     }
 
     /// <summary>Installed but pinned to a language Parakeet does not hear: the island says this, not "download".</summary>

@@ -16,6 +16,7 @@ public static class BuddyTranscriptionProviderFactory
         AssemblyAI,
         OpenAI,
         Parakeet,
+        Moonshine,
         /// <summary>"apple" in shell.json: the offline engine, which on Windows is the Windows speech recogniser.</summary>
         OfflineSpeech,
     }
@@ -26,6 +27,7 @@ public static class BuddyTranscriptionProviderFactory
         "assemblyai" => PreferredProvider.AssemblyAI,
         "openai" => PreferredProvider.OpenAI,
         "parakeet" => PreferredProvider.Parakeet,
+        "moonshine" => PreferredProvider.Moonshine,
         "apple" or "windows" or "offline" => PreferredProvider.OfflineSpeech,
         _ => null,
     };
@@ -58,8 +60,11 @@ public static class BuddyTranscriptionProviderFactory
         var preferred = ParsePreferredProvider(preferredRaw);
 
         if (preferred == PreferredProvider.Parakeet)
-            return new ParakeetTranscriptionProvider(() => DictationEngineResolver.ParakeetUnavailableReason(
-                ParakeetDictation.IsInstalled, ReplyLanguage.CurrentCode));
+            return new ParakeetTranscriptionProvider(() => ParakeetDictation.UnavailableReason(ReplyLanguage.CurrentCode));
+
+        if (preferred == PreferredProvider.Moonshine)
+            return new MoonshineTranscriptionProvider(() =>
+                DictationEngineResolver.MoonshineUnavailableReason(MoonshineFacts.IsInstalled, ReplyLanguage.CurrentCode));
 
         if (preferred == PreferredProvider.OfflineSpeech) return makeOfflineProvider();
 

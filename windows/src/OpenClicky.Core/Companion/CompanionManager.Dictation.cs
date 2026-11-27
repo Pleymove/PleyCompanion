@@ -79,7 +79,8 @@ public sealed partial class CompanionManager
         ApplyPreferredMicrophone(DictationSettings.PreferredMicrophoneUID);
         Island.DictationEngineName = controller.EngineDisplayName;
         RefreshEngineWarning();
-        if (ParakeetDictation.Shared is { } parakeet) parakeet.PropertyChanged += OnParakeetStateChanged;
+        foreach (var model in VoiceModelCatalog.Recognition)
+            if (VoiceModelRuntime.Shared?.FindRecognizer(model) is { } parakeet) parakeet.PropertyChanged += OnParakeetStateChanged;
     }
 
     private void OnParakeetStateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs eventArgs)
@@ -119,7 +120,8 @@ public sealed partial class CompanionManager
     private void StopDictation()
     {
         DictationSettings.PropertyChanged -= OnDictationSettingsChanged;
-        if (ParakeetDictation.Shared is { } parakeet) parakeet.PropertyChanged -= OnParakeetStateChanged;
+        foreach (var model in VoiceModelCatalog.Recognition)
+            if (VoiceModelRuntime.Shared?.FindRecognizer(model) is { } parakeet) parakeet.PropertyChanged -= OnParakeetStateChanged;
         if (dictationTakeController is { } controller)
         {
             if (controller.IsTakeInProgress) controller.CancelTake("cancelled");
