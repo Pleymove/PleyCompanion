@@ -21,106 +21,72 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
         "Clipboard Viewer Ignore",
     ];
 
-    private static readonly object ClipboardLock = new();
+    private readonly object ownerLock = new();
     private readonly Lazy<MessageLoopThread> clipboardOwner =
         new(() => new MessageLoopThread("PleyCompanion clipboard owner", (_, _, _, _) => null));
+    private bool disposed;
 
     public uint SequenceNumber => GetClipboardSequenceNumber();
 
     public string? GetText()
     {
-        lock (ClipboardLock)
+        if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return null;
+        return WithOpenClipboard<string?>(() =>
         {
-            if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !Open()) return null;
-            try
-            {
-                var handle = GetClipboardData(CF_UNICODETEXT);
-                if (handle == 0) return null;
-                var pointer = GlobalLock(handle);
-                if (pointer == 0) return null;
-                try
-                {
-                    return Marshal.PtrToStringUni(pointer);
-                }
-                finally
-                {
-                    GlobalUnlock(handle);
-                }
-            }
-            finally
-            {
-                CloseClipboard();
-            }
-        }
+            var handle = GetClipboardData(CF_UNICODETEXT);
+            if (handle == 0) return null;
+            var pointer = GlobalLock(handle);
+            if (pointer == 0) return null;
+            try { return Marshal.PtrToStringUni(pointer); }
+            finally { GlobalUnlock(handle); }
+        }, unavailable: null);
     }
 
-    public bool SetText(string text, bool excludeFromHistory = false)
+    public bool SetText(string text, bool excludeFromHistory = false) => WithOpenClipboard(() =>
     {
-        lock (ClipboardLock)
+        if (!EmptyClipboard()) return false;
+        var bytes = Encoding.Unicode.GetBytes(text + "\0");
+        if (!SetBytes(CF_UNICODETEXT, bytes)) return false;
+        if (excludeFromHistory)
         {
-            if (!OpenForWriting()) return false;
-            try
-            {
-                if (!EmptyClipboard()) return false;
-                var bytes = Encoding.Unicode.GetBytes(text + "\0");
-                if (!SetBytes(CF_UNICODETEXT, bytes)) return false;
-                if (excludeFromHistory)
-                {
-                    // Keeps a transient paste out of Win+V history, cloud clipboard and well-behaved clipboard managers.
-                    SetBytes(RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing"), [0]);
-                    SetBytes(RegisterClipboardFormat("CanIncludeInClipboardHistory"), BitConverter.GetBytes(0));
-                    SetBytes(RegisterClipboardFormat("CanUploadToCloudClipboard"), BitConverter.GetBytes(0));
-                }
-                return true;
-            }
-            finally
-            {
-                CloseClipboard();
-            }
+            // Keeps a transient paste out of Win+V history, cloud clipboard and well-behaved clipboard managers.
+            SetBytes(RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing"), [0]);
+            SetBytes(RegisterClipboardFormat("CanIncludeInClipboardHistory"), BitConverter.GetBytes(0));
+            SetBytes(RegisterClipboardFormat("CanUploadToCloudClipboard"), BitConverter.GetBytes(0));
         }
-    }
+        return true;
+    }, unavailable: false);
 
-    public ClipboardSnapshot Snapshot()
+    public ClipboardSnapshot Snapshot() => WithOpenClipboard(() =>
     {
-        lock (ClipboardLock)
+        var formats = new List<ClipboardFormatData>();
+        long totalBytes = 0;
+        uint format = 0;
+        while ((format = EnumClipboardFormats(format)) != 0)
         {
-            if (!Open()) return ClipboardSnapshot.Unavailable;
+            if (!IsCopyableFormat(format)) continue;
+            var handle = GetClipboardData(format);
+            if (handle == 0) continue;
+            var size = (long)GlobalSize(handle);
+            if (size <= 0 || totalBytes + size > MaximumSnapshotBytes) continue;
+            var pointer = GlobalLock(handle);
+            if (pointer == 0) continue;
             try
             {
-                var formats = new List<ClipboardFormatData>();
-                long totalBytes = 0;
-                uint format = 0;
-                while ((format = EnumClipboardFormats(format)) != 0)
-                {
-                    if (!IsCopyableFormat(format)) continue;
-                    var handle = GetClipboardData(format);
-                    if (handle == 0) continue;
-                    var size = (long)GlobalSize(handle);
-                    if (size <= 0 || totalBytes + size > MaximumSnapshotBytes) continue;
-                    var pointer = GlobalLock(handle);
-                    if (pointer == 0) continue;
-                    try
-                    {
-                        var data = new byte[size];
-                        Marshal.Copy(pointer, data, 0, (int)size);
-                        formats.Add(new ClipboardFormatData(format, FormatName(format), data));
-                        totalBytes += size;
-                    }
-                    finally
-                    {
-                        GlobalUnlock(handle);
-                    }
-                }
-                return formats.Count == 0 && CountClipboardFormats() > 0
-                    ? ClipboardSnapshot.Unavailable
-                    : new ClipboardSnapshot(formats);
+                var data = new byte[size];
+                Marshal.Copy(pointer, data, 0, (int)size);
+                formats.Add(new ClipboardFormatData(format, FormatName(format), data));
+                totalBytes += size;
             }
             finally
             {
-                CloseClipboard();
+                GlobalUnlock(handle);
             }
         }
-    }
+        return formats.Count == 0 && CountClipboardFormats() > 0
+            ? ClipboardSnapshot.Unavailable
+            : new ClipboardSnapshot(formats);
+    }, ClipboardSnapshot.Unavailable);
 
     public bool Restore(ClipboardSnapshot snapshot) => Restore(snapshot, null);
 
@@ -128,29 +94,22 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
 
     private bool Restore(ClipboardSnapshot snapshot, uint? expectedSequenceNumber)
     {
-        lock (ClipboardLock)
+        if (!snapshot.CanRestore) return false;
+        return WithOpenClipboard(() =>
         {
-            if (!snapshot.CanRestore || !OpenForWriting()) return false;
-            try
+            if (expectedSequenceNumber is { } expected && SequenceNumber != expected) return false;
+            if (!EmptyClipboard()) return false;
+            var allWritten = true;
+            foreach (var format in snapshot.Formats)
             {
-                if (expectedSequenceNumber is { } expected && SequenceNumber != expected) return false;
-                if (!EmptyClipboard()) return false;
-                var allWritten = true;
-                foreach (var format in snapshot.Formats)
-                {
-                    // Registered format ids are per session but stable; re-register by name to be safe.
-                    var formatId = format.FormatName is { Length: > 0 } name && format.FormatId >= 0xC000
-                        ? RegisterClipboardFormat(name)
-                        : format.FormatId;
-                    allWritten &= SetBytes(formatId, format.Data);
-                }
-                return allWritten;
+                // Registered format ids are per session but stable; re-register by name to be safe.
+                var formatId = format.FormatName is { Length: > 0 } name && format.FormatId >= 0xC000
+                    ? RegisterClipboardFormat(name)
+                    : format.FormatId;
+                allWritten &= SetBytes(formatId, format.Data);
             }
-            finally
-            {
-                CloseClipboard();
-            }
-        }
+            return allWritten;
+        }, unavailable: false);
     }
 
     public bool HasFormat(string registeredFormatName)
@@ -168,29 +127,15 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
         // CanIncludeInClipboardHistory present with value 0 = "do not keep this".
         var historyFormat = RegisterClipboardFormat("CanIncludeInClipboardHistory");
         if (historyFormat == 0 || !IsClipboardFormatAvailable(historyFormat)) return false;
-        lock (ClipboardLock)
+        return WithOpenClipboard(() =>
         {
-            if (!Open()) return false;
-            try
-            {
-                var handle = GetClipboardData(historyFormat);
-                if (handle == 0 || (long)GlobalSize(handle) < 4) return false;
-                var pointer = GlobalLock(handle);
-                if (pointer == 0) return false;
-                try
-                {
-                    return Marshal.ReadInt32(pointer) == 0;
-                }
-                finally
-                {
-                    GlobalUnlock(handle);
-                }
-            }
-            finally
-            {
-                CloseClipboard();
-            }
-        }
+            var handle = GetClipboardData(historyFormat);
+            if (handle == 0 || (long)GlobalSize(handle) < 4) return false;
+            var pointer = GlobalLock(handle);
+            if (pointer == 0) return false;
+            try { return Marshal.ReadInt32(pointer) == 0; }
+            finally { GlobalUnlock(handle); }
+        }, unavailable: false);
     }
 
     /// <summary>HGLOBAL formats only: bitmaps, palettes and metafiles are GDI handles, and CF_BITMAP is synthesised from CF_DIB anyway.</summary>
@@ -231,16 +176,35 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
         return true;
     }
 
-    // EmptyClipboard assigns ownership to the HWND passed to OpenClipboard.
-    // SetClipboardData fails when the clipboard was emptied with a null owner.
-    private bool OpenForWriting() => clipboardOwner.Value.WindowHandle is var owner && owner != 0 && Open(owner);
+    private TResult WithOpenClipboard<TResult>(Func<TResult> action, TResult unavailable)
+    {
+        lock (ownerLock)
+        {
+            if (disposed) return unavailable;
+            var owner = clipboardOwner.Value;
+            if (owner.WindowHandle == 0) return unavailable;
+            // EmptyClipboard uses this HWND as the owner. Keep the HWND and every open/close
+            // operation on the same thread, including reads and conditional restoration.
+            return owner.Invoke(() =>
+            {
+                if (!TryOpen(owner.WindowHandle)) return unavailable;
+                try { return action(); }
+                finally { CloseClipboard(); }
+            });
+        }
+    }
 
     public void Dispose()
     {
-        if (clipboardOwner.IsValueCreated) clipboardOwner.Value.Dispose();
+        lock (ownerLock)
+        {
+            if (disposed) return;
+            disposed = true;
+            if (clipboardOwner.IsValueCreated) clipboardOwner.Value.Dispose();
+        }
     }
 
-    private static bool Open(nint owner = default)
+    private static bool TryOpen(nint owner)
     {
         for (var attempt = 0; attempt < 25; attempt++)
         {
