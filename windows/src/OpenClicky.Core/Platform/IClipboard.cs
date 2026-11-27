@@ -10,7 +10,11 @@ public sealed class ClipboardSnapshot
 
     public static readonly ClipboardSnapshot Unavailable = new(Array.Empty<ClipboardFormatData>(), canRestore: false);
 
-    public ClipboardSnapshot(IReadOnlyList<ClipboardFormatData> formats, bool canRestore = true) => Formats = formats;
+    public ClipboardSnapshot(IReadOnlyList<ClipboardFormatData> formats, bool canRestore = true)
+    {
+        Formats = formats;
+        CanRestore = canRestore;
+    }
 
     public IReadOnlyList<ClipboardFormatData> Formats { get; }
 

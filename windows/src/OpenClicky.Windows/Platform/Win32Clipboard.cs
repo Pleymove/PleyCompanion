@@ -69,8 +69,7 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
     {
         var formats = new List<ClipboardFormatData>();
         long totalBytes = 0;
-        // Read standard text through the tested Unicode path before asking delayed providers for
-        // additional formats. Some desktop sessions never enumerate the seeded text as a raw block.
+        // Read standard Unicode text before asking delayed providers for additional formats.
         if (canReadText && ReadUnicodeText() is { } unicodeText)
         {
             var data = Encoding.Unicode.GetBytes(unicodeText + "\0");

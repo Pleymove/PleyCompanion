@@ -106,7 +106,6 @@ jobs:
 
       - name: Probe Win32 clipboard on the hosted desktop
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
-        continue-on-error: true
         timeout-minutes: 2
         run: |
           $report = Join-Path $env:RUNNER_TEMP 'windows-x64-clipboard.txt'
