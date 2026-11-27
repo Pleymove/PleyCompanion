@@ -15,7 +15,7 @@ namespace OpenClicky.Windows.Launcher;
 
 public partial class LauncherWindow : Window
 {
-    private sealed record Row(string Name, string Detail, string Glyph, Action Run, BitmapSource? Icon = null, Action? Reveal = null);
+    private sealed record Row(string Name, string Detail, string Glyph, Action Run, BitmapSource? Icon = null, Action? Reveal = null, bool KeepOpen = false);
     private readonly LauncherApplications apps;
     private readonly LauncherFiles files;
     private readonly LocalToolRegistry tools;
@@ -141,7 +141,7 @@ public partial class LauncherWindow : Window
                 rows.Add(new(value, "Calculatrice · Copier le résultat", "\uE8EF", () => Clipboard.SetText(value)));
             foreach (var tool in tools.Tools.OrderByDescending(t => LauncherSearch.Score(t.Name, query)))
                 if (LauncherSearch.Score(tool.Name, query) > 0)
-                    rows.Add(new(tool.Name, "Commande", "\uE756", () => tools.Execute(tool.Id)));
+                    rows.Add(new(tool.Name, "Commande", "\uE756", () => tools.Execute(tool.Id), KeepOpen: tool.Id == "files"));
             foreach (var app in apps.Search(query))
             {
                 var path = app.Kind == DesktopAppTargetKind.PackagedApp ? @"shell:AppsFolder\" + app.Target : app.Target;
@@ -199,7 +199,7 @@ public partial class LauncherWindow : Window
         if (action == null) return;
         try
         {
-            if (row.Detail == "Commande" && row.Name == tools.Tools.Single(t => t.Id == "files").Name) { action(); return; }
+            if (row.KeepOpen) { action(); return; }
             Cancel();
             Hide();
             SetForegroundWindow(previous);
