@@ -52,6 +52,7 @@ public sealed class AppComposition : ICompanionHost, IDisposable
     private readonly GuidedStepInputSource guidedStepInput;
     private readonly VelopackAppUpdater updater;
     private readonly TrayIcon trayIcon;
+    private readonly Launcher.LauncherWindow launcher;
     private readonly DispatcherTimer memoryWatch;
     private readonly nint lowMemoryNotification;
     private DictationWindow? dictationWindow;
@@ -150,6 +151,12 @@ public sealed class AppComposition : ICompanionHost, IDisposable
 
         updater = new VelopackAppUpdater(preferences, new UpdatePromptSheets(dispatcher, dictationSettings), enableUpdateFeed: false);
         trayIcon = new TrayIcon(ReadTrayState);
+        var tools = new OpenClicky.Core.Launcher.LocalToolRegistry();
+        tools.Register(new("settings", "Ouvrir les paramètres", () => Companion.ShowSettings()));
+        tools.Register(new("assistant", "Ouvrir l’assistant IA écrit", () => Companion.Island.OpenTextComposer()));
+        tools.Register(new("dictation", "Lancer la dictée", () => Companion.DictationTakeController?.OrbClicked()));
+        launcher = new(platform.Screens, platform.DesktopActions, preferences, tools);
+        trayIcon.LauncherRequested += launcher.Toggle;
         WireTray();
 
         singleInstance.ArgumentsReceived += _ => dispatcher.BeginInvoke(() => Companion.ShowDictationWindow());
@@ -170,8 +177,10 @@ public sealed class AppComposition : ICompanionHost, IDisposable
     public void Start()
     {
         Companion.Start();
+        _ = launcher.Load();
         companionUi.Show();
         trayIcon.IsVisible = TrayShouldShow();
+        if (!launcher.HasShortcut) trayIcon.NotifyShortcutConflict();
         updater.Start();
         memoryWatch.Start();
         if (Companion.DictationTakeController is { } controller) controller.HideOwnWindows = () => dictationWindow?.Hide();
@@ -348,6 +357,7 @@ public sealed class AppComposition : ICompanionHost, IDisposable
         {
             AppLog.Write($"quit: companion stop failed: {error.Message}");
         }
+        launcher.Close();
         trayIcon.Dispose();
         updater.Dispose();
         guidedStepInput.Dispose();
