@@ -40,6 +40,7 @@ jobs:
           global-json-file: windows/global.json
 
       - name: Build the Windows solution
+        id: build
         run: dotnet build OpenClicky.Windows.sln -c Release -p:RestoreLockedMode=true
 
       - name: Run the Windows Core tests
@@ -73,13 +74,13 @@ jobs:
 
       - name: Build the Velopack installer
         id: package
-        if: github.event_name != 'push'
+        if: ${{ !cancelled() && github.event_name != 'push' && steps.build.outcome == 'success' }}
         env:
           PLEY_BUILD_VERSION: ${{ inputs.version }}
         run: ./installer/build-release.ps1 -Version $env:PLEY_BUILD_VERSION
 
       - name: Keep the installer with this run
-        if: github.event_name != 'push'
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: PleyCompanion-windows-x64

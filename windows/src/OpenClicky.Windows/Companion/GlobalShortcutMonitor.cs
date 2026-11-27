@@ -49,12 +49,6 @@ public sealed class GlobalShortcutMonitor : ICompanionShortcutSource, IDisposabl
         set { lock (recognizerLock) recognizer.ReportsOtherDictationKeys = value; }
     }
 
-    public bool AdoptsRightAlt
-    {
-        get { lock (recognizerLock) return recognizer.AdoptsRightAlt; }
-        set { lock (recognizerLock) recognizer.AdoptsRightAlt = value; }
-    }
-
     public bool IsRunning => keyboardMonitor.IsRunning;
 
     public void Start()

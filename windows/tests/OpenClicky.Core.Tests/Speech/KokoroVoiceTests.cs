@@ -2,6 +2,7 @@
 // and the WAV the helper sends back.
 
 using System.Buffers.Binary;
+using OpenClicky.Core.Configuration;
 using OpenClicky.Core.Speech;
 
 namespace OpenClicky.Core.Tests.Speech;
@@ -21,6 +22,16 @@ public class KokoroVoiceTests
         Assert.Equal("fr", KokoroVoice.LanguageHint("fr"));
         Assert.Equal(30, KokoroVoice.SpeakerFor("fr", null)?.Id);
         Assert.Equal("Siwis", KokoroVoice.SpeakerFor("fr", 26)?.Name);
+    }
+
+    [Fact]
+    public void FrenchKokoroFallsBackToWindowsEvenWithAConfiguredCloudVoice()
+    {
+        var settings = new OpenClickyShellSettings { SpeechVoice = "kokoro", OpenaiApiKey = "test-key" };
+        Assert.Equal(SpeechVoiceChoice.Mac,
+            SpeechVoiceChoices.Resolve(settings, hasAccount: true, kokoroInstalled: false, languageCode: "fr", thisPCSpeaksLanguage: () => false));
+        Assert.Equal(SpeechVoiceChoice.Kokoro,
+            SpeechVoiceChoices.Resolve(settings, hasAccount: true, kokoroInstalled: true, languageCode: "fr"));
     }
 
     [Fact]

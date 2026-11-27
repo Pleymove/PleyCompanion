@@ -2,10 +2,10 @@
 // and the rest of the answer go to the local voice, a stop is never mistaken for trouble, and two troubled answers
 // in a row rest the free voice for ten minutes in Automatic only.
 
-using System.Diagnostics;
 using System.Text;
 using OpenClicky.Core.Configuration;
 using OpenClicky.Core.Speech;
+using OpenClicky.Core.Tests.Dictation;
 
 namespace OpenClicky.Core.Tests.Speech;
 
@@ -19,6 +19,7 @@ public class AnswerVoiceSessionTests
     /// <summary>Records what the session reports, and makes the session with short deadlines.</summary>
     private sealed class Harness
     {
+        public ManualTimeProvider Clock { get; } = new(DateTimeOffset.UnixEpoch);
         public List<AnswerVoiceSession.AccountTrouble> Troubles { get; } = [];
         public int AnswersOnTime;
         public int TroubledAnswers;
@@ -29,7 +30,7 @@ public class AnswerVoiceSessionTests
             speaksWithAccountVoice,
             async (text, cancellationToken) =>
             {
-                await Task.Delay(TimeSpan.FromSeconds(accountDelaySeconds?.Invoke(text) ?? 0), cancellationToken);
+                await Task.Delay(TimeSpan.FromSeconds(accountDelaySeconds?.Invoke(text) ?? 0), Clock, cancellationToken);
                 if (accountFails?.Invoke(text) == true) throw new VoiceRefused();
                 return Audio("account", text);
             },
@@ -38,7 +39,8 @@ public class AnswerVoiceSessionTests
             onFirstAccountAudio: _ => Interlocked.Increment(ref FirstSoundCount),
             onAccountTrouble: trouble => { lock (Troubles) Troubles.Add(trouble); },
             onAnswerOnTime: () => Interlocked.Increment(ref AnswersOnTime),
-            onTroubledAnswer: () => Interlocked.Increment(ref TroubledAnswers));
+            onTroubledAnswer: () => Interlocked.Increment(ref TroubledAnswers),
+            timeProvider: Clock);
     }
 
     [Fact]
@@ -59,9 +61,9 @@ public class AnswerVoiceSessionTests
     {
         var harness = new Harness();
         var session = harness.Session(accountDelaySeconds: text => text == "one" ? 5 : 0);
-        var stopwatch = Stopwatch.StartNew();
-        Assert.Equal("local:one", Spoken(await session.AudioAsync("one")));
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(3));
+        var first = session.AudioAsync("one");
+        harness.Clock.Advance(TimeSpan.FromSeconds(0.5));
+        Assert.Equal("local:one", Spoken(await first));
         // The account would answer the second piece at once; the answer stays in one voice.
         Assert.Equal("local:two", Spoken(await session.AudioAsync("two")));
         Assert.Equal(1, harness.TroubledAnswers);
@@ -77,7 +79,9 @@ public class AnswerVoiceSessionTests
         var harness = new Harness();
         var session = harness.Session(accountDelaySeconds: text => text == "two" ? 0.8 : 0);
         await session.AudioAsync("one");
-        Assert.Equal("account:two", Spoken(await session.AudioAsync("two")));
+        var second = session.AudioAsync("two");
+        harness.Clock.Advance(TimeSpan.FromSeconds(0.8));
+        Assert.Equal("account:two", Spoken(await second));
         Assert.Empty(harness.Troubles);
     }
 
@@ -103,6 +107,7 @@ public class AnswerVoiceSessionTests
         var session = harness.Session(accountDelaySeconds: text => text == "one" ? 5 : 1.0);
         var first = session.AudioAsync("one");
         var second = session.AudioAsync("two");
+        harness.Clock.Advance(TimeSpan.FromSeconds(0.5));
         Assert.Equal("local:one", Spoken(await first));
         Assert.Equal("local:two", Spoken(await second));
         Assert.Single(harness.Troubles);
@@ -117,7 +122,6 @@ public class AnswerVoiceSessionTests
         var session = harness.Session(accountDelaySeconds: _ => 5);
         using var stop = new CancellationTokenSource();
         var piece = session.AudioAsync("one", stop.Token);
-        await Task.Delay(20);
         stop.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => piece);
         Assert.Empty(harness.Troubles);

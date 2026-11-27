@@ -37,9 +37,6 @@ public interface ICompanionShortcutSource
     /// first-run tour waits for the first take, so a keyboard without the default key can say so.</summary>
     bool ReportsOtherDictationKeys { get; set; }
 
-    /// <summary>Right Alt pressed alone becomes the dictation key on that press (CompanionShortcutRecognizer.AdoptsRightAlt).</summary>
-    bool AdoptsRightAlt { get; set; }
-
     bool IsRunning { get; }
 
     /// <summary>Starts listening; idempotent (a running monitor keeps its press in progress).</summary>
