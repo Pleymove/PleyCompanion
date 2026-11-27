@@ -4,14 +4,18 @@
 // the language, else the built-in Moonshine when it hears it (English), and Windows speech only
 // otherwise. Decided per take, because Parakeet usually finishes downloading after the provider is built.
 
+using OpenClicky.Core.Configuration;
+using OpenClicky.Core.Dictation;
 using OpenClicky.Core.Platform;
 
 namespace OpenClicky.Core.Speech;
 
 public sealed class OnDeviceHearingProvider(IOfflineSpeechRecognizer offlineRecognizer) : IBuddyTranscriptionProvider
 {
-    private readonly ParakeetTranscriptionProvider parakeetProvider = new();
-    private readonly MoonshineTranscriptionProvider moonshineProvider = new();
+    private readonly ParakeetTranscriptionProvider parakeetProvider = new(() =>
+        DictationEngineResolver.ParakeetUnavailableReason(ParakeetFacts.IsInstalled, ReplyLanguage.CurrentCode));
+    private readonly MoonshineTranscriptionProvider moonshineProvider = new(() =>
+        DictationEngineResolver.MoonshineUnavailableReason(MoonshineFacts.IsInstalled, ReplyLanguage.CurrentCode));
     private readonly WindowsSpeechTranscriptionProvider windowsSpeechProvider = new(offlineRecognizer);
 
     private IBuddyTranscriptionProvider Current =>

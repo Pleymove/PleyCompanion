@@ -540,7 +540,7 @@ public sealed class DictationTakeController : ObservableObject, IDisposable
                     if (takeId != thisTakeId) return;
                     takeReceivedFinalTranscript = true;
                     Observe(FinishTakeAsync(final, thisTakeId));
-                });
+                }, cancellationToken);
             if (takeId != thisTakeId) return;
             pendingStartTask = null;
             if (State == TakeState.Starting) State = TakeState.Listening;
@@ -981,6 +981,8 @@ public sealed class DictationTakeController : ObservableObject, IDisposable
     /// </summary>
     private async Task<LiveTypingSession?> MakeLiveTypingSessionIfWantedAsync(TakeMode mode, FocusedTextTarget? focusedTarget, CancellationToken cancellationToken)
     {
+        // Parakeet can revise the spelling and punctuation of its French partials on the final pass.
+        if (Settings.Engine == DictationEngineChoice.Parakeet && Settings.Language.BareCode == "fr") return null;
         if (mode != TakeMode.Dictate || HoldsTakesOnTheIsland || fieldAtPress.IsSecure || focusedTarget is null || !focusedTarget.AcceptsLiveTyping) return null;
         if (await host.IsSecureInputOnAsync(cancellationToken)) return null;
         if (LiveTypingExclusions.ReasonNotToType(focusedTarget, fieldAtPress.AppProcessName, host.OwnProcessId, host.OwnProcessName) is { } reason)

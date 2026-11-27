@@ -27,7 +27,7 @@ public sealed partial class ParakeetDictation : ObservableObject
 
     public static ModelDownload ModelDownload { get; } = new(
         new Uri("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"),
-        "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf", 487_170_055);
+        "1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9", 487_211_443);
 
     // The model's facts (size, languages, folder, installed) have one home, Dictation's
     // ParakeetFacts, which the resolver and Settings read too; these forward to it.
@@ -51,61 +51,20 @@ public sealed partial class ParakeetDictation : ObservableObject
 
     public const int IdleUnloadSeconds = 180;
 
-    /// <summary>Set when the person removed the model or cancelled its download: it is never fetched again
-    /// on its own (choosing it in Settings clears this).</summary>
-    public const string DeclinedKey = "openclicky.parakeet.declined";
-
-    /// <summary>
-    /// Whether this PC should get Parakeet without being asked. On the Mac only before macOS 26,
-    /// where the offline engine is the old recogniser; Windows' offline engine is the old Windows
-    /// recogniser on every version, so always.
-    /// </summary>
-    public static bool IsRecommendedForThisPC => ParakeetFacts.IsRecommendedForThisPC;
-
-    /// <summary>The dictation engine raw values (DictationEngineChoice's).</summary>
-    public const string OfflineEngineRawValue = "offline";
-    public const string MoonshineEngineRawValue = "moonshine";
-    public const string ParakeetEngineRawValue = "parakeet";
-
-    /// <summary>The engines Parakeet replaces on its own once downloaded: Windows speech and the built-in Moonshine.</summary>
-    public static bool IsReplaceableEngine(string rawValue) => rawValue is OfflineEngineRawValue or MoonshineEngineRawValue;
-
-    /// <summary>The engine picked in Settings → Dictation, as its raw value (DictationSettings.Shared unless replaced).</summary>
-    public Func<string>? CurrentDictationEngine { get; set; } = () => DictationSettings.Shared.Engine.Id();
-
-    /// <summary>Changes the engine picked in Settings → Dictation (DictationSettings.Shared unless replaced).</summary>
-    public Action<string>? SetDictationEngine { get; set; } = rawValue =>
-    {
-        if (DictationEngineChoices.FromRawValue(rawValue) is { } engine) DictationSettings.Shared.Engine = engine;
-    };
-
-    /// <summary>Points the engine hooks at <paramref name="settings"/> (the app's own, or a test's).</summary>
-    public void UseDictationSettings(DictationSettings settings)
-    {
-        CurrentDictationEngine = () => settings.Engine.Id();
-        SetDictationEngine = rawValue =>
-        {
-            if (DictationEngineChoices.FromRawValue(rawValue) is { } engine) settings.Engine = engine;
-        };
-    }
-
     private readonly SherpaHelperClient engine;
     private readonly IProcessRunner processRunner;
-    private readonly INetworkReachability network;
-    private readonly Preferences preferences;
     private readonly IMainThread? mainThread;
     private readonly object taskLock = new();
     private CancellationTokenSource? downloadCancellation;
+    private int warming;
     private CancellationTokenSource? idleUnloadCancellation;
 
     [ObservableProperty]
     private ModelInstallState state;
 
-    public ParakeetDictation(IProcessRunner processRunner, INetworkReachability network, Preferences preferences, string helperExecutablePath, IMainThread? mainThread = null)
+    public ParakeetDictation(IProcessRunner processRunner, string helperExecutablePath, IMainThread? mainThread = null)
     {
         this.processRunner = processRunner;
-        this.network = network;
-        this.preferences = preferences;
         this.mainThread = mainThread;
         engine = new SherpaHelperClient(HelperFlag, "parakeet", processRunner, helperExecutablePath);
         state = IsInstalled ? ModelInstallState.Installed : ModelInstallState.NotInstalled;
@@ -122,12 +81,13 @@ public sealed partial class ParakeetDictation : ObservableObject
     /// <summary>The dictation key went down: start the helper and load the model while the take is spoken.</summary>
     public void PrepareForTake()
     {
-        if (!IsInstalled) return;
+        if (!IsInstalled || engine.IsRunning || Interlocked.Exchange(ref warming, 1) != 0) return;
         _ = Task.Run(async () =>
         {
             var startedAt = DateTime.UtcNow;
             try { await TranscribeAsync([]).ConfigureAwait(false); }
-            catch (Exception) { }
+            catch (Exception) { return; }
+            finally { Interlocked.Exchange(ref warming, 0); }
             AppLog.Write($"parakeet: ready in {(DateTime.UtcNow - startedAt).TotalSeconds:0.0} s");
         });
     }
@@ -177,48 +137,10 @@ public sealed partial class ParakeetDictation : ObservableObject
         if (await engine.UnloadAsync().ConfigureAwait(false)) AppLog.Write($"parakeet: unloaded ({reason})");
     }
 
-    // MARK: Automatic setup
-
-    /// <summary>
-    /// The same, read off the dictation settings. Wired (CompanionManager.StartAutomaticModelDownloads): the companion calls this 8 s after
-    /// launch and when the welcome tour ends (the Mac's CompanionManager.startAutomaticModelDownloads).
-    /// </summary>
-    public void StartAutomaticSetup(bool tourIsFinished, DictationSettings settings) =>
-        StartAutomaticSetup(tourIsFinished, settings.Engine.Id(), settings.Language.BareCode);
-
-    /// <summary>At launch and when the welcome tour ends: on a PC whose dictation is on Windows speech or
-    /// the built-in Moonshine, the model downloads in the background and takes over when it is ready.</summary>
-    public void StartAutomaticSetup(bool tourIsFinished, string currentEngineRawValue, string? bareLanguageCode)
-    {
-        bool downloading;
-        lock (taskLock) downloading = downloadCancellation is not null;
-        if (!IsRecommendedForThisPC || IsInstalled || !tourIsFinished || downloading
-            || !IsReplaceableEngine(currentEngineRawValue) || !Hears(bareLanguageCode)
-            || preferences.GetBool(DeclinedKey)
-            || ModelDownload.FreeSpace() < ModelDownload.AutomaticDownloadFreeSpace) return;
-        if (ModelDownload.NetworkIsExpensiveOrConstrained(network))
-        {
-            AppLog.Write("parakeet: automatic download waits for an unmetered network");
-            return;
-        }
-        AppLog.Write("parakeet: automatic download started");
-        Download(isAutomatic: true);
-    }
-
-    /// <summary>The engine once an automatic download finishes: Parakeet replaces Windows speech and the
-    /// built-in Moonshine; an engine the person moved to themselves is left alone.</summary>
-    public static string EngineAfterAutomaticDownload(string current) =>
-        IsReplaceableEngine(current) ? ParakeetEngineRawValue : current;
-
-    /// <summary>The engine dictation falls back to when Parakeet goes: the built-in Moonshine when this
-    /// build has it, else Windows speech.</summary>
-    public static string EngineAfterRemoval => MoonshineFacts.IsInstalled ? MoonshineEngineRawValue : OfflineEngineRawValue;
-
     // MARK: Download
 
-    public void Download(bool isAutomatic = false)
+    public void Download()
     {
-        if (!isAutomatic) preferences.Set(DeclinedKey, false);
         CancellationTokenSource cancellation;
         lock (taskLock)
         {
@@ -244,16 +166,6 @@ public sealed partial class ParakeetDictation : ObservableObject
                 if (!IsInstalled) throw ModelDownloadException.UnpackFailed("the files weren't where they should be");
                 AppLog.Write("parakeet: installed");
                 SetState(ModelInstallState.Installed);
-                if (isAutomatic && CurrentDictationEngine?.Invoke() is { } current)
-                {
-                    var next = EngineAfterAutomaticDownload(current);
-                    if (next != current)
-                    {
-                        if (mainThread is null || mainThread.IsMainThread) SetDictationEngine?.Invoke(next);
-                        else await mainThread.InvokeAsync(() => SetDictationEngine?.Invoke(next)).ConfigureAwait(false);
-                        AppLog.Write("parakeet: now the dictation engine");
-                    }
-                }
             }
             catch (OperationCanceledException)
             {
@@ -275,17 +187,14 @@ public sealed partial class ParakeetDictation : ObservableObject
         });
     }
 
-    /// <summary>A cancelled download is a no: it isn't started again on its own.</summary>
     public void CancelDownload()
     {
-        preferences.Set(DeclinedKey, true);
         lock (taskLock) downloadCancellation?.Cancel();
     }
 
-    /// <summary>Deletes the model and ends the helper; dictation goes back to Moonshine (or Windows speech).</summary>
+    /// <summary>Deletes the model and ends the helper.</summary>
     public async Task RemoveAsync()
     {
-        preferences.Set(DeclinedKey, true);
         lock (taskLock) downloadCancellation?.Cancel();
         await engine.UnloadAsync().ConfigureAwait(false);
         try { if (Directory.Exists(Folder)) Directory.Delete(Folder, recursive: true); }
@@ -294,6 +203,5 @@ public sealed partial class ParakeetDictation : ObservableObject
             AppLog.Write($"parakeet: could not remove the model: {error.Message}");
         }
         SetState(ModelInstallState.NotInstalled);
-        if (CurrentDictationEngine?.Invoke() == ParakeetEngineRawValue) SetDictationEngine?.Invoke(EngineAfterRemoval);
     }
 }

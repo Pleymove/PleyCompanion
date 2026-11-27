@@ -37,12 +37,13 @@ public sealed class AudioCapture : IAudioCapture
 
     public Task<AudioCaptureStartResult> StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default) =>
         // WASAPI objects are created on an MTA thread-pool thread, never the UI thread.
-        Task.Run(() => Start(options), cancellationToken);
+        Task.Run(() => Start(options, cancellationToken), cancellationToken);
 
-    private AudioCaptureStartResult Start(AudioCaptureOptions options)
+    private AudioCaptureStartResult Start(AudioCaptureOptions options, CancellationToken cancellationToken)
     {
         lock (stateLock)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             StopLocked(raiseStopped: false);
             stopRequested = false;
             using var enumerator = new MMDeviceEnumerator();

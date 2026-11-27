@@ -275,6 +275,30 @@ public static class OpenClickyConfiguration
         SettingsFileUnreadable?.Invoke(sentence);
     }
 
+    /// <summary>Seeds the French voice profile once, before any settings singleton is read.</summary>
+    public static void InitializeNewWindowsProfile() => InitializeNewWindowsProfile(OpenClickyPaths.AppDataDirectory);
+
+    internal static void InitializeNewWindowsProfile(string appDataDirectory)
+    {
+        var shellFile = Path.Combine(appDataDirectory, "shell.json");
+        var preferencesFile = Path.Combine(appDataDirectory, "preferences.json");
+        if (File.Exists(shellFile) || File.Exists(preferencesFile)
+            || Directory.Exists(Path.Combine(appDataDirectory, "Models"))
+            || File.Exists(Path.Combine(appDataDirectory, "dictation.sqlite"))) return;
+
+        if (!Update(shellFile, shell =>
+        {
+            shell.Language = "fr";
+            shell.TranscriptionProvider = "parakeet";
+            shell.SpeechVoice = "kokoro";
+        })) return;
+
+        var preferences = new Preferences(preferencesFile);
+        preferences.Set(Dictation.DictationSettings.Keys.Language, "fr-FR");
+        preferences.SetEnum(Dictation.DictationSettings.Keys.Engine, Dictation.DictationEngineChoice.Parakeet);
+        preferences.Set(Companion.CompanionManager.RealtimeVoiceEnabledKey, false);
+    }
+
     public static void EnsureSettingsFileExists()
     {
         if (File.Exists(SettingsFilePath))

@@ -301,6 +301,9 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool OpenClipboard(nint hWndNewOwner);
 
+    [DllImport("user32.dll")]
+    public static extern int CountClipboardFormats();
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool CloseClipboard();

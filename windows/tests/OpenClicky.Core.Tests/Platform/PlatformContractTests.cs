@@ -9,6 +9,17 @@ public class PasteLandingTests
         new() { AppProcessName = "notepad.exe", AppName = "Notepad", Role = role, IsEditable = editable, Value = value };
 
     [Fact]
+    public void AClipboardSnapshotCanBeRestoredUnlessCaptureWasUnavailable()
+    {
+        var format = new ClipboardFormatData(13, null, [65, 0, 0, 0]);
+        var snapshot = new ClipboardSnapshot([format]);
+        Assert.True(snapshot.CanRestore);
+        Assert.Same(format, Assert.Single(snapshot.Formats));
+        Assert.True(ClipboardSnapshot.Empty.CanRestore);
+        Assert.False(ClipboardSnapshot.Unavailable.CanRestore);
+    }
+
+    [Fact]
     public void TextFoundInTheFieldIsVerified() =>
         Assert.Equal(PasteLandingResult.Verified, PasteLanding.Landing("hello there", Field(value: ""), Field(value: "hello there")));
 

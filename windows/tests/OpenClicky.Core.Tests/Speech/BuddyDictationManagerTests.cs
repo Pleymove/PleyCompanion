@@ -35,19 +35,23 @@ public class BuddyDictationManagerTests : IDisposable
     {
         public List<FakeSession> Sessions { get; } = [];
         public IReadOnlyList<string>? LastKeyterms { get; private set; }
+        public Task? DelayNextStart { get; set; }
         public TimeSpan FallbackDelay { get; set; } = TimeSpan.FromSeconds(5);
         public string DisplayName => "Fake";
         public bool RequiresSpeechRecognitionPermission => false;
         public bool IsConfigured => true;
         public string? UnavailableExplanation => null;
 
-        public Task<IBuddyStreamingTranscriptionSession> StartStreamingSessionAsync(IReadOnlyList<string> keyterms, Action<string> onTranscriptUpdate,
+        public async Task<IBuddyStreamingTranscriptionSession> StartStreamingSessionAsync(IReadOnlyList<string> keyterms, Action<string> onTranscriptUpdate,
             Action<string> onFinalTranscriptReady, Action<Exception> onError, CancellationToken cancellationToken = default)
         {
             LastKeyterms = keyterms;
             var session = new FakeSession(new BuddyTranscriptionSessionCallbacks(onTranscriptUpdate, onFinalTranscriptReady, onError)) { FinalTranscriptFallbackDelay = FallbackDelay };
             lock (Sessions) Sessions.Add(session);
-            return Task.FromResult<IBuddyStreamingTranscriptionSession>(session);
+            var startDelay = DelayNextStart;
+            DelayNextStart = null;
+            if (startDelay is not null) await startDelay;
+            return session;
         }
     }
 
@@ -189,12 +193,33 @@ public class BuddyDictationManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task AReleasedKeyCancelsAProviderStillStartingWithoutClosingTheNextTake()
+    {
+        var releaseFirstProvider = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new FakeProvider { DelayNextStart = releaseFirstProvider.Task };
+        var capture = new FakeAudioCapture();
+        using var manager = new BuddyDictationManager(provider, mainThread, () => capture);
+        var firstStart = mainThread.RunAsync(() => manager.StartPushToTalkFromKeyboardShortcutAsync("", _ => { }, _ => { }));
+        Assert.True(await Eventually.TrueAsync(() => manager.IsPreparingToRecord));
+        await mainThread.InvokeAsync(manager.StopPushToTalkFromKeyboardShortcut);
+        await mainThread.RunAsync(() => manager.StartPushToTalkFromKeyboardShortcutAsync("", _ => { }, _ => { }));
+
+        releaseFirstProvider.SetResult();
+        await firstStart;
+        Assert.True(provider.Sessions[0].Cancelled);
+        Assert.False(provider.Sessions[1].Cancelled);
+        Assert.True(manager.IsRecordingFromKeyboardShortcut);
+        Assert.Equal(1, capture.StartCount);
+        await mainThread.InvokeAsync(() => manager.CancelCurrentDictation(false));
+    }
+
+    [Fact]
     public async Task AMicrophoneThatWillNotStartTearsTheSessionDown()
     {
         var capture = new FakeAudioCapture { StartFailure = new AudioCaptureException(AudioCaptureFailure.DeviceInUse, "the microphone is in use by another app.") };
         var harness = await StartedHarnessAsync(capture: capture);
         Assert.True(harness.Provider.Sessions.Single().Cancelled);
-        Assert.Equal("the microphone is in use by another app.", harness.Manager.LastErrorMessage);
+        Assert.Equal("Le microphone est utilisé par une autre application. Libérez-le, puis réessayez.", harness.Manager.LastErrorMessage);
         Assert.False(harness.Manager.IsDictationInProgress);
         Assert.Null(harness.Manager.ActiveSessionIdentity);
     }

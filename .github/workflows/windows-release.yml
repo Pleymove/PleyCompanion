@@ -34,11 +34,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: windows/global.json
 
       - name: Build the Windows solution
+        id: build
         run: dotnet build OpenClicky.Windows.sln -c Release -p:RestoreLockedMode=true
 
       - name: Run the Windows Core tests
@@ -71,13 +73,14 @@ jobs:
           ) >> $env:GITHUB_STEP_SUMMARY
 
       - name: Build the Velopack installer
-        if: github.event_name != 'push'
+        id: package
+        if: ${{ !cancelled() && github.event_name != 'push' && steps.build.outcome == 'success' }}
         env:
           PLEY_BUILD_VERSION: ${{ inputs.version }}
         run: ./installer/build-release.ps1 -Version $env:PLEY_BUILD_VERSION
 
       - name: Keep the installer with this run
-        if: github.event_name != 'push'
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: PleyCompanion-windows-x64
@@ -85,3 +88,54 @@ jobs:
             windows/Releases/win-x64/PleyCompanion-Setup.exe
             windows/Releases/win-x64/SHA256SUMS.txt
           if-no-files-found: error
+
+
+      - name: Verify French CPU voice
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        timeout-minutes: 10
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'windows-x64-voice.txt'
+          $app = Resolve-Path 'publish/win-x64/PleyCompanion.exe'
+          $process = Start-Process -FilePath $app -PassThru -Wait -ArgumentList @('--pley-smoke-voice-fr', ('"{0}"' -f $report))
+          if (Test-Path $report) {
+            '### French CPU voice' >> $env:GITHUB_STEP_SUMMARY
+            Get-Content $report | ForEach-Object { "- $_" } >> $env:GITHUB_STEP_SUMMARY
+            Get-Content $report
+          }
+          if ($process.ExitCode -ne 0) { throw "French voice smoke failed with exit code $($process.ExitCode)." }
+
+      - name: Probe Win32 clipboard on the hosted desktop
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        timeout-minutes: 2
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'windows-x64-clipboard.txt'
+          $app = Resolve-Path 'publish/win-x64/PleyCompanion.exe'
+          $process = Start-Process -FilePath $app -PassThru -Wait -ArgumentList @('--pley-smoke-clipboard', ('"{0}"' -f $report))
+          if (Test-Path $report) {
+            '### Win32 clipboard on the hosted desktop' >> $env:GITHUB_STEP_SUMMARY
+            Get-Content $report | ForEach-Object { "- $_" } >> $env:GITHUB_STEP_SUMMARY
+            Get-Content $report
+          }
+          if ($process.ExitCode -ne 0) { throw "Win32 clipboard probe failed with exit code $($process.ExitCode)." }
+
+      - name: Verify upgrade from 0.12.1 and fresh launch
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        timeout-minutes: 10
+        run: |
+          $phase1 = Join-Path $env:RUNNER_TEMP 'pley-phase1'
+          git worktree add --detach $phase1 290508b9a11fb7922a71d13afe71e6ceda653d75
+          & (Join-Path $phase1 'windows/installer/build-release.ps1')
+          ./scripts/test-upgrade.ps1 -BaselineInstaller (Join-Path $phase1 'windows/Releases/win-x64/PleyCompanion-Setup.exe') `
+              -Installer 'Releases/win-x64/PleyCompanion-Setup.exe' | Tee-Object -Variable outcomes
+          '### Installation and upgrade' >> $env:GITHUB_STEP_SUMMARY
+          $outcomes | ForEach-Object { "- $_" } >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Keep the French voice measurements
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-voice-measurements
+          path: |
+            ${{ runner.temp }}/windows-x64-voice.txt
+            ${{ runner.temp }}/windows-x64-clipboard.txt
+          if-no-files-found: warn

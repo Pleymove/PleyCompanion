@@ -126,7 +126,6 @@ public sealed partial class CompanionManager
                 break;
             case CompanionShortcutEventKind.DictationPressed:
             case CompanionShortcutEventKind.DictationEditPressed:
-                NoteDictationKeyPressed();
                 HandleDictationShortcut(shortcutEvent);
                 break;
             default:
@@ -234,6 +233,8 @@ public sealed partial class CompanionManager
             ShowAskCaption($"you’re still dictating. tap {DictationSettings.DictationKey.KeycapLabel()} to finish, then ask again.", 4);
             return;
         }
+        if (ReplyLanguage.CurrentCode != hearingLanguage || OpenClickyConfiguration.Settings.TranscriptionProvider != hearingPreference)
+            ApplyHearingForAccount();
         AppLog.Write("ask: ctrl+win pressed, listening");
         LastQuestionFailed = false;
         // A new press owns the outcome from here: whatever the last release was waiting for is over.

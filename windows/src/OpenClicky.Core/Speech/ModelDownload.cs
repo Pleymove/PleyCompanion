@@ -87,12 +87,20 @@ public sealed record ModelDownload(Uri Url, string Sha256, long Bytes)
                 TryDelete(destination);
                 throw;
             }
-            if (!string.Equals(Sha256Of(destination), Sha256, StringComparison.OrdinalIgnoreCase))
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await using var archive = File.OpenRead(destination);
+                var checksum = Convert.ToHexString(await SHA256.HashDataAsync(archive, cancellationToken).ConfigureAwait(false));
+                if (archive.Length != Bytes || !string.Equals(checksum, Sha256, StringComparison.OrdinalIgnoreCase))
+                    throw ModelDownloadException.DownloadFailed("l’archive ne correspond pas à la taille ou à la somme SHA-256 attendue");
+                return destination;
+            }
+            catch
             {
                 TryDelete(destination);
-                throw ModelDownloadException.DownloadFailed("the download didn't match its checksum");
+                throw;
             }
-            return destination;
         }
     }
 
@@ -123,6 +131,7 @@ public sealed record ModelDownload(Uri Url, string Sha256, long Bytes)
                 Arguments = ["-xjf", archive, "-C", staging],
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (result.ExitCode != 0) throw ModelDownloadException.UnpackFailed($"tar exited with {result.ExitCode}");
+            cancellationToken.ThrowIfCancellationRequested();
             foreach (var entry in Directory.EnumerateFileSystemEntries(staging))
             {
                 var destination = Path.Combine(folder, Path.GetFileName(entry));
@@ -182,8 +191,8 @@ public sealed record ModelDownload(Uri Url, string Sha256, long Bytes)
 
 public sealed class ModelDownloadException(string message) : Exception(message)
 {
-    public static ModelDownloadException DownloadFailed(string reason) => new($"the download failed: {reason}.");
-    public static ModelDownloadException UnpackFailed(string reason) => new($"it couldn't be unpacked: {reason}.");
+    public static ModelDownloadException DownloadFailed(string reason) => new($"Échec du téléchargement : {reason}.");
+    public static ModelDownloadException UnpackFailed(string reason) => new($"Échec de l’extraction : {reason}.");
 }
 
 /// <summary>What a model download is doing, as Settings shows it. Compare with ==.</summary>

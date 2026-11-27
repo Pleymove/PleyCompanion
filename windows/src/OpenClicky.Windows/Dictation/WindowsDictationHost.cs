@@ -75,7 +75,9 @@ public static class WindowsDictationHost
         var window = NativeMethods.GetForegroundWindow();
         if (window == 0 || NativeMethods.WindowClassName(window) != "ConsoleWindowClass") return textInserter.Insert(text);
         var oneLine = string.Join(" ", text.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)).Trim();
-        return textInserter.TypeAsKeystrokes(oneLine) ? TextInsertionOutcome.Typed : TextInsertionOutcome.LeftOnClipboard;
+        if (textInserter.TypeAsKeystrokes(oneLine)) return TextInsertionOutcome.Typed;
+        textInserter.CopyToClipboard(text);
+        return TextInsertionOutcome.LeftOnClipboard;
     }
 
     public static string? ForegroundProcessName()

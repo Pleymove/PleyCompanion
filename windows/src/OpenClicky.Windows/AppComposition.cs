@@ -66,6 +66,7 @@ public sealed class AppComposition : ICompanionHost, IDisposable
         this.singleInstance = singleInstance;
         dispatcher = application.Dispatcher;
         platform = new PlatformServices(dispatcher);
+        OpenClickyConfiguration.InitializeNewWindowsProfile();
         preferences = Preferences.Shared;
         dictationSettings = DictationSettings.Shared;
 
@@ -74,7 +75,7 @@ public sealed class AppComposition : ICompanionHost, IDisposable
         OpenClickyConfiguration.SettingsFileUnreadable += reason => AppLog.Write($"settings: shell.json unreadable: {reason}");
         OpenClickyAuthSession.Shared.Start(SynchronizationContext.Current);
 
-        RegisterLocalModels(platform.Processes, platform.Network, preferences, platform.MainThread, dictationSettings);
+        RegisterLocalModels(platform.Processes, platform.MainThread);
         SpeechVoiceServices.Current = SpeechVoiceServices.ForThisPC(platform.SystemVoice);
         if (KokoroVoice.Shared is { } kokoro) kokoro.IsCurrentVoice = () => SpeechVoiceChoices.Current() == SpeechVoiceChoice.Kokoro;
 
@@ -158,18 +159,12 @@ public sealed class AppComposition : ICompanionHost, IDisposable
     }
 
     /// <summary>KokoroVoice.Shared, ParakeetDictation.Shared and MoonshineDictation.Shared, run by this exe's helper flags.</summary>
-    public static void RegisterLocalModels(IProcessRunner processes, INetworkReachability network, Preferences preferences, IMainThread? mainThread,
-                                           DictationSettings? dictationSettings = null)
+    public static void RegisterLocalModels(IProcessRunner processes, IMainThread? mainThread)
     {
         var helperPath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, AppIdentity.ExecutableName);
-        KokoroVoice.Shared ??= new KokoroVoice(processes, network, preferences, helperPath, mainThread);
+        KokoroVoice.Shared ??= new KokoroVoice(processes, helperPath, mainThread);
         MoonshineDictation.Shared ??= new MoonshineDictation(processes, helperPath);
-        if (ParakeetDictation.Shared is null)
-        {
-            var parakeet = new ParakeetDictation(processes, network, preferences, helperPath, mainThread);
-            if (dictationSettings is not null) parakeet.UseDictationSettings(dictationSettings);
-            ParakeetDictation.Shared = parakeet;
-        }
+        ParakeetDictation.Shared ??= new ParakeetDictation(processes, helperPath, mainThread);
     }
 
     public void Start()
@@ -249,6 +244,9 @@ public sealed class AppComposition : ICompanionHost, IDisposable
             Microphones = platform.Microphones,
             MicrophonePermission = platform.MicrophonePermission,
             CreateAudioCapture = platform.CreateAudioCapture,
+            OfflineSpeech = platform.OfflineSpeech,
+            IsVoiceInputBusy = () => Companion.IsTakeInProgress || Companion.IsAlwaysListening
+                || Companion.VoiceState != CompanionVoiceState.Idle,
             FrontmostApp = platform.FrontmostApp,
             SystemVoice = platform.SystemVoice,
             AudioPlayer = platform.AudioPlayer,

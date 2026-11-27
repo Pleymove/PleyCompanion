@@ -4,6 +4,7 @@
 // more. The Info.plist fallback of the Mac has no Windows twin (there is no bundle setting).
 
 using OpenClicky.Core.Configuration;
+using OpenClicky.Core.Dictation;
 using OpenClicky.Core.Platform;
 
 namespace OpenClicky.Core.Speech;
@@ -14,6 +15,7 @@ public static class BuddyTranscriptionProviderFactory
     {
         AssemblyAI,
         OpenAI,
+        Parakeet,
         /// <summary>"apple" in shell.json: the offline engine, which on Windows is the Windows speech recogniser.</summary>
         OfflineSpeech,
     }
@@ -23,6 +25,7 @@ public static class BuddyTranscriptionProviderFactory
     {
         "assemblyai" => PreferredProvider.AssemblyAI,
         "openai" => PreferredProvider.OpenAI,
+        "parakeet" => PreferredProvider.Parakeet,
         "apple" or "windows" or "offline" => PreferredProvider.OfflineSpeech,
         _ => null,
     };
@@ -53,6 +56,10 @@ public static class BuddyTranscriptionProviderFactory
     {
         var preferredRaw = storedPreference?.ToLowerInvariant() ?? (isConfigured ? "openai" : null);
         var preferred = ParsePreferredProvider(preferredRaw);
+
+        if (preferred == PreferredProvider.Parakeet)
+            return new ParakeetTranscriptionProvider(() => DictationEngineResolver.ParakeetUnavailableReason(
+                ParakeetDictation.IsInstalled, ReplyLanguage.CurrentCode));
 
         if (preferred == PreferredProvider.OfflineSpeech) return makeOfflineProvider();
 

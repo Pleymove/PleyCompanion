@@ -18,13 +18,16 @@ internal sealed class MessageLoopThread : IDisposable
     private readonly Thread thread;
     private readonly WndProc? windowProcedure;
     private readonly Func<nint, uint, nint, nint, nint?>? messageHandler;
+    private readonly bool messageOnlyWindow;
     private uint threadId;
     private bool disposed;
 
     /// <param name="messageHandler">Called for the message-only window's messages; return a value to handle one, null to pass it on. Null = no window.</param>
-    public MessageLoopThread(string name, Func<nint, uint, nint, nint, nint?>? messageHandler = null, ThreadPriority priority = ThreadPriority.Normal)
+    public MessageLoopThread(string name, Func<nint, uint, nint, nint, nint?>? messageHandler = null,
+                             ThreadPriority priority = ThreadPriority.Normal, bool messageOnlyWindow = true)
     {
         this.messageHandler = messageHandler;
+        this.messageOnlyWindow = messageOnlyWindow;
         if (messageHandler is not null) windowProcedure = WindowProcedure;
         thread = new Thread(Run) { IsBackground = true, Name = name, Priority = priority };
         thread.SetApartmentState(ApartmentState.STA);
@@ -74,7 +77,8 @@ internal sealed class MessageLoopThread : IDisposable
             };
             if (RegisterClassEx(ref windowClass) != 0)
             {
-                WindowHandle = CreateWindowEx(0, className, className, 0, 0, 0, 0, 0, HWND_MESSAGE, 0, windowClass.hInstance, 0);
+                WindowHandle = CreateWindowEx(0, className, className, 0, 0, 0, 0, 0,
+                    messageOnlyWindow ? HWND_MESSAGE : 0, 0, windowClass.hInstance, 0);
             }
         }
         // Make sure the thread has a message queue before anyone posts to it.

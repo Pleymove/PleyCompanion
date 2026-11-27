@@ -96,6 +96,7 @@ public sealed class AnswerVoiceSession
     private readonly Func<string, CancellationToken, Task<byte[]>> fetchAccountAudio;
     private readonly Func<string, CancellationToken, Task<byte[]>> fetchFallbackAudio;
     private readonly Func<int, TimeSpan> deadline;
+    private readonly TimeProvider timeProvider;
     private readonly Action<TimeSpan> onFirstAccountAudio;
     private readonly Action<AccountTrouble> onAccountTrouble;
     private readonly Action onAnswerOnTime;
@@ -116,12 +117,14 @@ public sealed class AnswerVoiceSession
                               Action<TimeSpan>? onFirstAccountAudio = null,
                               Action<AccountTrouble>? onAccountTrouble = null,
                               Action? onAnswerOnTime = null,
-                              Action? onTroubledAnswer = null)
+                              Action? onTroubledAnswer = null,
+                              TimeProvider? timeProvider = null)
     {
         this.speaksWithAccountVoice = speaksWithAccountVoice;
         this.fetchAccountAudio = fetchAccountAudio;
         this.fetchFallbackAudio = fetchFallbackAudio;
         this.deadline = deadline ?? AccountVoiceDeadline.For;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
         this.onFirstAccountAudio = onFirstAccountAudio ?? (_ => { });
         this.onAccountTrouble = onAccountTrouble ?? (_ => { });
         this.onAnswerOnTime = onAnswerOnTime ?? (() => { });
@@ -137,11 +140,11 @@ public sealed class AnswerVoiceSession
         if (!speaksWithAccountVoice || HasFallenBack) return await fetchFallbackAudio(pieceText, cancellationToken).ConfigureAwait(false);
 
         var waitFor = deadline(pieceNumber);
-        var startedAt = DateTimeOffset.Now;
+        var startedAt = timeProvider.GetTimestamp();
         // The account fetch races its deadline and another piece falling back; the losers are cancelled.
         using var race = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var accountTask = fetchAccountAudio(pieceText, race.Token);
-        var deadlineTask = Task.Delay(waitFor, race.Token).ContinueWith(_ => { }, TaskScheduler.Default);
+        var deadlineTask = Task.Delay(waitFor, timeProvider, race.Token);
         var first = await Task.WhenAny(accountTask, deadlineTask, fellBack.Task).ConfigureAwait(false);
         race.Cancel();
         // A stopped answer (Esc, a new question) is an interruption, never a reason to fall back.
@@ -155,7 +158,7 @@ public sealed class AnswerVoiceSession
                 if (HasFallenBack) return await fetchFallbackAudio(pieceText, cancellationToken).ConfigureAwait(false);
                 if (pieceNumber == 0)
                 {
-                    onFirstAccountAudio(DateTimeOffset.Now - startedAt);
+                    onFirstAccountAudio(timeProvider.GetElapsedTime(startedAt));
                     onAnswerOnTime();
                 }
                 return accountTask.Result;

@@ -14,7 +14,7 @@
 // model that ships inside the app and needs no permission. Parakeet is the better offline engine,
 // set up as on a Mac before macOS 26: once the welcome tour is done its model downloads on its own
 // (unless declined, on an unmetered network with room on the disk) and replaces `moonshine` or
-// `offline` (ParakeetDictation.StartAutomaticSetup). `offline` stays a choice, and its words say
+// Windows speech stays a choice, and its words say
 // where its audio may go.
 
 using CommunityToolkit.Mvvm.ComponentModel;

@@ -3,6 +3,8 @@
 
 using System.Text.Json.Nodes;
 using OpenClicky.Core.Configuration;
+using OpenClicky.Core.Companion;
+using OpenClicky.Core.Dictation;
 
 namespace OpenClicky.Core.Tests.Configuration;
 
@@ -27,6 +29,42 @@ public sealed class OpenClickyConfigurationTests : IDisposable
     }
 
     private static JsonObject JsonObjectAt(string filePath) => JsonNode.Parse(File.ReadAllText(filePath))!.AsObject();
+
+    [Fact]
+    public void ANewWindowsProfileStartsInFrenchWithLocalVoice()
+    {
+        OpenClickyConfiguration.InitializeNewWindowsProfile(temporaryDirectory);
+
+        var shell = JsonObjectAt(Path.Combine(temporaryDirectory, "shell.json"));
+        var preferences = new Preferences(Path.Combine(temporaryDirectory, "preferences.json"));
+        var dictation = new DictationSettings(preferences);
+        Assert.Equal("fr", shell["language"]?.GetValue<string>());
+        Assert.Equal("parakeet", shell["transcriptionProvider"]?.GetValue<string>());
+        Assert.Equal("kokoro", shell["speechVoice"]?.GetValue<string>());
+        Assert.Equal("fr-FR", dictation.LanguageCode);
+        Assert.Equal(DictationEngineChoice.Parakeet, dictation.Engine);
+        Assert.False(preferences.GetOptionalBool(CompanionManager.RealtimeVoiceEnabledKey));
+        Assert.Equal(DictationLanguage.Named("fr-FR"), dictation.Language);
+    }
+
+    [Fact]
+    public void AnExistingWindowsProfileKeepsItsFilesAndModel()
+    {
+        const string existingShell = """{"language":"en","speechVoice":"mac","token":"test-token","openaiApiKey":"test-key","futureOption":42}""";
+        const string existingPreferences = """{"dictation.language":"auto","dictation.engine":"moonshine","dictation.key":"rightAlt"}""";
+        var shellFile = TemporarySettingsFile(existingShell);
+        var preferencesFile = Path.Combine(temporaryDirectory, "preferences.json");
+        File.WriteAllText(preferencesFile, existingPreferences);
+        var model = Path.Combine(temporaryDirectory, "Models", "Parakeet", "tokens.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(model)!);
+        File.WriteAllText(model, "downloaded model");
+
+        OpenClickyConfiguration.InitializeNewWindowsProfile(temporaryDirectory);
+
+        Assert.Equal(existingShell, File.ReadAllText(shellFile));
+        Assert.Equal(existingPreferences, File.ReadAllText(preferencesFile));
+        Assert.Equal("downloaded model", File.ReadAllText(model));
+    }
 
     [Fact]
     public void AnOwnKeyIsEnoughForModelCallsWithNoAccount()

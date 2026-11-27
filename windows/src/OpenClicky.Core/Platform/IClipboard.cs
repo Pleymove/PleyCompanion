@@ -8,9 +8,17 @@ public sealed class ClipboardSnapshot
 {
     public static readonly ClipboardSnapshot Empty = new(Array.Empty<ClipboardFormatData>());
 
-    public ClipboardSnapshot(IReadOnlyList<ClipboardFormatData> formats) => Formats = formats;
+    public static readonly ClipboardSnapshot Unavailable = new(Array.Empty<ClipboardFormatData>(), canRestore: false);
+
+    public ClipboardSnapshot(IReadOnlyList<ClipboardFormatData> formats, bool canRestore = true)
+    {
+        Formats = formats;
+        CanRestore = canRestore;
+    }
 
     public IReadOnlyList<ClipboardFormatData> Formats { get; }
+
+    public bool CanRestore { get; }
 
     public bool IsEmpty => Formats.Count == 0;
 }
@@ -33,6 +41,9 @@ public interface IClipboard
     ClipboardSnapshot Snapshot();
 
     bool Restore(ClipboardSnapshot snapshot);
+
+    bool RestoreIfUnchanged(ClipboardSnapshot snapshot, uint sequenceNumber) =>
+        snapshot.CanRestore && SequenceNumber == sequenceNumber && Restore(snapshot);
 
     /// <summary>Whether a registered format (by name) is on the clipboard now.</summary>
     bool HasFormat(string registeredFormatName);

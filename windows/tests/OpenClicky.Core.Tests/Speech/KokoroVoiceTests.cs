@@ -2,23 +2,13 @@
 // and the WAV the helper sends back.
 
 using System.Buffers.Binary;
+using OpenClicky.Core.Configuration;
 using OpenClicky.Core.Speech;
 
 namespace OpenClicky.Core.Tests.Speech;
 
 public class KokoroVoiceTests
 {
-    [Fact]
-    public void AnAutomaticDownloadMakesKokoroTheVoiceOnlyWhereNobodyPickedOne()
-    {
-        Assert.Equal("kokoro", KokoroVoice.VoiceAfterAutomaticDownload(null, "en"));
-        Assert.Equal("kokoro", KokoroVoice.VoiceAfterAutomaticDownload("cloud", "en"));
-        Assert.Equal("kokoro", KokoroVoice.VoiceAfterAutomaticDownload("automatic", "en"));
-        Assert.Equal("openai", KokoroVoice.VoiceAfterAutomaticDownload("openai", "en"));
-        Assert.Equal("mac", KokoroVoice.VoiceAfterAutomaticDownload("mac", "en"));
-        Assert.Null(KokoroVoice.VoiceAfterAutomaticDownload(null, "ta"));
-    }
-
     [Fact]
     public void KokoroSpeaksTheReplyLanguageWithThePickedSpeakerWhenItFits()
     {
@@ -30,6 +20,18 @@ public class KokoroVoiceTests
         Assert.Equal("en-us", KokoroVoice.LanguageHint("en"));
         Assert.Equal("pt-br", KokoroVoice.LanguageHint("pt"));
         Assert.Equal("fr", KokoroVoice.LanguageHint("fr"));
+        Assert.Equal(30, KokoroVoice.SpeakerFor("fr", null)?.Id);
+        Assert.Equal("Siwis", KokoroVoice.SpeakerFor("fr", 26)?.Name);
+    }
+
+    [Fact]
+    public void FrenchKokoroFallsBackToWindowsEvenWithAConfiguredCloudVoice()
+    {
+        var settings = new OpenClickyShellSettings { SpeechVoice = "kokoro", OpenaiApiKey = "test-key" };
+        Assert.Equal(SpeechVoiceChoice.Mac,
+            SpeechVoiceChoices.Resolve(settings, hasAccount: true, kokoroInstalled: false, languageCode: "fr", thisPCSpeaksLanguage: () => false));
+        Assert.Equal(SpeechVoiceChoice.Kokoro,
+            SpeechVoiceChoices.Resolve(settings, hasAccount: true, kokoroInstalled: true, languageCode: "fr"));
     }
 
     [Fact]

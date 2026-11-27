@@ -12,6 +12,8 @@ using OpenClicky.Core.Dictation;
 using OpenClicky.Core.Platform;
 using OpenClicky.Core.Settings;
 using OpenClicky.Core.Shortcuts;
+using OpenClicky.Core.Speech;
+using OpenClicky.Windows.Platform;
 using WpfUi = Wpf.Ui.Controls;
 
 namespace OpenClicky.Windows.AppWindow;
@@ -67,7 +69,7 @@ internal sealed partial class SettingsRowFactory
                     Changes.Of(Settings, nameof(DictationSettings.PreferredMicrophoneUID)),
                     Changes.Event(handler => services.Microphones.DevicesChanged += handler, handler => services.Microphones.DevicesChanged -= handler));
             case "dictation.micTest":
-                return Ui.Card(new MicrophoneTestRow(item, query, services));
+                return Ui.Card(new VoiceDiagnosticsRow(item, query, services));
             case "dictation.inactivityTimeout":
                 return LiveSettingsCard(() => Ui.Row(item.Title, item.Detail, query,
                     Ui.Picker(new[] { (1, "1 minute"), (3, "3 minutes"), (5, "5 minutes"), (10, "10 minutes"), (0, "Never") },
@@ -104,7 +106,6 @@ internal sealed partial class SettingsRowFactory
             var option = Ui.RadioOption(isSelected, choice.SettingsTitle(), choice.SettingsDetail(), query, () =>
             {
                 Settings.Engine = choice;
-                if (choice == DictationEngineChoice.Parakeet && parakeet.State.Kind == ModelDownloadState.Stage.NotInstalled) parakeet.Download();
             }, Ui.Tag(choice.AudioDestinationTag(), choice.IsOnDevice()), badge);
             var stack = new StackPanel();
             stack.Children.Add(option);
@@ -113,10 +114,17 @@ internal sealed partial class SettingsRowFactory
                 var downloadRow = ModelDownloadRow(parakeet, ParakeetCaption);
                 downloadRow.Margin = new Thickness(30, 10, 0, 0);
                 stack.Children.Add(downloadRow);
+                if (isSelected && unavailableReason == DictationEngineResolver.ParakeetLanguageNotHeardReason)
+                    stack.Children.Add(Ui.Text(unavailableReason, SettingsLook.CaptionSize, SettingsLook.Danger));
             }
-            else if (isSelected && unavailableReason is not null)
+            if (isSelected && unavailableReason is not null && choice != DictationEngineChoice.Parakeet)
             {
                 var reason = Ui.Text(WordsPageSentences.SentenceCased(unavailableReason) + ".", SettingsLook.CaptionSize, SettingsLook.Danger);
+                if (choice == DictationEngineChoice.Moonshine)
+                {
+                    stack.Children.Add(reason);
+                    return Ui.Card(stack);
+                }
                 var fix = choice == DictationEngineChoice.Sarvam
                     ? Ui.Button("Add Key…", () => actions.ShowSettings(DictationSettingsPage.Account))
                     : Ui.Button("Sign In…", () => actions.ShowSettings(DictationSettingsPage.Account));
@@ -132,16 +140,13 @@ internal sealed partial class SettingsRowFactory
         }, Changes.Of(Settings, nameof(DictationSettings.Engine), nameof(DictationSettings.LanguageCode)), Changes.Shell, Changes.Of(parakeet));
     }
 
-    /// <summary>The engine Parakeet takes over from: the built-in Moonshine, or Windows speech in a build without it.</summary>
-    private static string FallbackEngineName => MoonshineFacts.IsInstalled ? "the built-in Moonshine" : "Windows speech recognition";
-
     private static string ParakeetCaption(ModelDownloadState state) => state.Kind switch
     {
-        ModelDownloadState.Stage.NotInstalled => $"Not downloaded yet. Takes stay with {FallbackEngineName} until it is.",
-        ModelDownloadState.Stage.Downloading => $"Downloading, {(int)Math.Round(state.Fraction * 100)}%. Takes stay with {FallbackEngineName} until it’s ready.",
-        ModelDownloadState.Stage.Unpacking => "Unpacking. Almost there.",
-        ModelDownloadState.Stage.Failed => state.Message ?? "The download failed.",
-        _ => "Downloaded. It loads while you speak, so takes start straight away.",
+        ModelDownloadState.Stage.NotInstalled => "Téléchargez le modèle pour transcrire en français sur ce PC.",
+        ModelDownloadState.Stage.Downloading => $"Téléchargement · {(int)Math.Round(state.Fraction * 100)} %",
+        ModelDownloadState.Stage.Unpacking => "Vérification et extraction du modèle…",
+        ModelDownloadState.Stage.Failed => state.Message ?? "Le téléchargement a échoué.",
+        _ => "Modèle téléchargé. La reconnaissance s’exécute sur le processeur.",
     };
 
     /// <summary>A model's download under its option: download (progress, cancel, retry), or remove it.</summary>
@@ -229,84 +234,147 @@ internal sealed partial class SettingsRowFactory
         return Ui.Row(item.Title, $"Automatic follows Windows’ default microphone. Clicky listens through it too. Now: {currentName}.", query, picker);
     }
 
-    /// <summary>"Speak to Test": the chosen input's level as five bars while it listens.</summary>
-    private sealed class MicrophoneTestRow : ContentControl
+    private sealed class VoiceDiagnosticsRow : ContentControl
     {
+        private static readonly TimeSpan CaptureDuration = TimeSpan.FromSeconds(5);
         private readonly SettingsItem item;
         private readonly string query;
         private readonly MainWindowServices services;
-        private IAudioCapture? capture;
-        private readonly Border[] bars = new Border[5];
-        private bool isTesting;
+        private readonly ProgressBar meter = new() { Minimum = 0, Maximum = 1, Width = 80, Height = 8 };
+        private CancellationTokenSource? currentTest;
 
-        public MicrophoneTestRow(SettingsItem item, string query, MainWindowServices services)
+        public VoiceDiagnosticsRow(SettingsItem item, string query, MainWindowServices services)
         {
             this.item = item;
             this.query = query;
             this.services = services;
             HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            Render();
-            Unloaded += (_, _) => StopTest();
+            Render(item.Detail);
+            Unloaded += (_, _) => Cancel();
+            IsVisibleChanged += (_, _) => { if (!IsVisible) Cancel(); };
         }
 
-        private void Render()
+        private void Render(string message, bool failed = false)
         {
-            var controls = new StackPanel { Orientation = Orientation.Horizontal };
-            if (isTesting)
+            var controls = currentTest is null
+                ? Ui.HStack(8, Ui.Button("Microphone", () => _ = RunAsync(transcribe: false)),
+                    Ui.Button("Transcription", () => _ = RunAsync(transcribe: true)))
+                : Ui.HStack(8, Ui.Button("Annuler", Cancel));
+            if (meter.Parent is Panel previousPanel) previousPanel.Children.Remove(meter);
+            var stack = new StackPanel();
+            stack.Children.Add(Ui.Row(item.Title, message, query, controls, failed ? SettingsLook.Danger : SettingsLook.TextSecondary));
+            if (currentTest is not null) stack.Children.Add(meter);
+            Content = stack;
+        }
+
+        private async Task RunAsync(bool transcribe)
+        {
+            if (currentTest is not null) return;
+            if (services.IsVoiceInputBusy())
             {
-                var meter = new StackPanel { Orientation = Orientation.Horizontal, Height = 18, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
-                for (var index = 0; index < bars.Length; index++)
-                {
-                    bars[index] = new Border { Width = 4, Height = 3, CornerRadius = new CornerRadius(2), Margin = new Thickness(1.5, 0, 1.5, 0), VerticalAlignment = VerticalAlignment.Center };
-                    bars[index].SetResourceReference(Border.BackgroundProperty, SettingsLook.Success);
-                    meter.Children.Add(bars[index]);
-                }
-                controls.Children.Add(meter);
+                Render("Terminez l’activité vocale ou désactivez le mode mains libres avant le test.", failed: true);
+                return;
             }
-            controls.Children.Add(Ui.Button(isTesting ? "Stop" : "Speak to Test", () => { if (isTesting) StopTest(); else _ = StartTestAsync(); }));
-            Content = Ui.Row(item.Title, isTesting ? "Speak, and the bars should follow your voice." : item.Detail, query, controls);
-        }
+            if (services.MicrophonePermission.ReadConsent() is MicrophoneConsent.DeniedForDevice
+                or MicrophoneConsent.DeniedForAllApps or MicrophoneConsent.DeniedForDesktopApps)
+            {
+                Render("Autorisez le microphone dans Paramètres Windows → Confidentialité et sécurité → Microphone.", failed: true);
+                return;
+            }
 
-        private async Task StartTestAsync()
-        {
-            var newCapture = services.CreateAudioCapture();
-            newCapture.FramesAvailable += frame => Dispatcher.BeginInvoke(() => ShowLevel(frame.Level));
+            using var test = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            currentTest = test;
+            meter.Value = 0;
+            Render("Parlez pendant cinq secondes.");
+            var message = "Test annulé ou délai dépassé.";
+            var failed = false;
             try
             {
-                await newCapture.StartAsync(new AudioCaptureOptions { DeviceId = services.Settings.PreferredMicrophoneUID, SampleRate = 16_000 });
-                capture = newCapture;
-                isTesting = true;
-                Render();
+                message = transcribe ? await TestTranscriptionAsync(test.Token) : await TestMicrophoneAsync(test.Token);
+            }
+            catch (OperationCanceledException) when (test.IsCancellationRequested)
+            {
+                // Closing or hiding Settings takes the microphone with it.
             }
             catch (Exception error)
             {
-                newCapture.Dispose();
-                AppLog.Write($"microphone test: couldn't start: {error.Message}");
-                Content = Ui.Row(item.Title, "Couldn’t open the microphone. Check Privacy & Security › Microphone.", query,
-                    Ui.Button("Speak to Test", () => _ = StartTestAsync()), SettingsLook.Danger);
+                failed = true;
+                message = error.Message;
+                AppLog.Write($"voice diagnostics: failed ({error.GetType().Name})");
             }
-        }
-
-        private void ShowLevel(float level)
-        {
-            if (!isTesting) return;
-            var scaled = Math.Min(1, level * 4);
-            for (var index = 0; index < bars.Length; index++)
+            finally
             {
-                // The middle bar is tallest, like the orb's level bars.
-                var shape = 1 - Math.Abs(index - 2) * 0.22;
-                bars[index].Height = Math.Max(3, 18 * scaled * shape);
+                currentTest = null;
+                Render(message, failed);
             }
         }
 
-        private void StopTest()
+        private async Task<string> TestMicrophoneAsync(CancellationToken cancellationToken)
         {
-            capture?.Stop();
-            capture?.Dispose();
-            capture = null;
-            if (!isTesting) return;
-            isTesting = false;
-            Render();
+            using var capture = services.CreateAudioCapture();
+            var peak = 0f;
+            var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            capture.FramesAvailable += frame =>
+            {
+                Volatile.Write(ref peak, Math.Max(Volatile.Read(ref peak), frame.Level));
+                Dispatcher.BeginInvoke(() => { if (!cancellationToken.IsCancellationRequested) meter.Value = frame.Level; });
+            };
+            void CaptureStopped(Exception? error) => stopped.TrySetException(error ?? new InvalidOperationException("Le microphone s’est arrêté."));
+            capture.CaptureStopped += CaptureStopped;
+            try
+            {
+                var opened = await capture.StartAsync(new AudioCaptureOptions
+                {
+                    DeviceId = services.Settings.PreferredMicrophoneUID,
+                }, cancellationToken);
+                var captureTime = Task.Delay(CaptureDuration, cancellationToken);
+                var completed = await Task.WhenAny(captureTime, stopped.Task);
+                await completed;
+                return Volatile.Read(ref peak) > 0.02
+                    ? $"Signal détecté · {opened.DeviceName}"
+                    : $"Signal trop faible ou absent · {opened.DeviceName}. Vérifiez le niveau d’entrée Windows.";
+            }
+            finally
+            {
+                capture.CaptureStopped -= CaptureStopped;
+            }
         }
+
+        private async Task<string> TestTranscriptionAsync(CancellationToken cancellationToken)
+        {
+            var settings = services.Settings;
+            var provider = DictationEngineResolver.MakeProvider(settings.Engine, settings, new DictationProviderFactory(services.OfflineSpeech));
+            if (provider.UnavailableExplanation is { } reason) throw new InvalidOperationException(reason);
+            Render($"Parlez pendant cinq secondes. {settings.Engine.AudioDestinationSentence()}");
+            using var manager = new BuddyDictationManager(provider, new DispatcherMainThread(Dispatcher),
+                services.CreateAudioCapture, services.MicrophonePermission)
+            {
+                PreferredMicrophoneId = settings.PreferredMicrophoneUID,
+            };
+            var transcript = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            manager.AudioPowerLevelChanged += level => meter.Value = level;
+            manager.ErrorMessageChanged += error =>
+            {
+                if (error is not null) transcript.TrySetException(new InvalidOperationException(error));
+            };
+            manager.SessionActivityChanged += active =>
+            {
+                // The manager sends any nonempty final text before the next dispatcher turn.
+                if (!active) Dispatcher.BeginInvoke(() => transcript.TrySetResult(""));
+            };
+            await manager.StartPushToTalkFromKeyboardShortcutAsync("", _ => { },
+                text => transcript.TrySetResult(text), cancellationToken);
+            var captureTime = Task.Delay(CaptureDuration, cancellationToken);
+            if (await Task.WhenAny(captureTime, transcript.Task) == captureTime)
+            {
+                await captureTime;
+                Render("Transcription en cours…");
+                manager.StopPushToTalkFromKeyboardShortcut();
+            }
+            var words = await transcript.Task.WaitAsync(cancellationToken);
+            return string.IsNullOrWhiteSpace(words) ? "Aucun mot reconnu. Réessayez plus près du microphone." : words;
+        }
+
+        private void Cancel() => currentTest?.Cancel();
     }
 }

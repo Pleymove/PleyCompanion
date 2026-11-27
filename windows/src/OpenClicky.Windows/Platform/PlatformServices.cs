@@ -13,7 +13,7 @@ public sealed class PlatformServices : IDisposable
     public PlatformServices(Dispatcher uiDispatcher)
     {
         MainThread = new DispatcherMainThread(uiDispatcher);
-        Clipboard = new Win32Clipboard();
+        Clipboard = win32Clipboard;
         TextInserter = new FrontAppTextInserter(Clipboard);
         // find_on_page types into the find bar the way live dictation types, once UI Automation says it has the focus.
         DesktopActions = new DesktopActionExecutor(TextInserter, FocusedElements);
@@ -27,6 +27,7 @@ public sealed class PlatformServices : IDisposable
 
     public IMainThread MainThread { get; }
     public IGlobalKeyboardMonitor KeyboardMonitor { get; } = new GlobalKeyboardMonitor();
+    private readonly Win32Clipboard win32Clipboard = new();
     public IClipboard Clipboard { get; }
     public IClipboardChangeListener ClipboardChanges { get; } = new ClipboardChangeListener();
     public ITextInserter TextInserter { get; }
@@ -61,6 +62,7 @@ public sealed class PlatformServices : IDisposable
     {
         KeyboardMonitor.Dispose();
         ClipboardChanges.Dispose();
+        win32Clipboard.Dispose();
         FrontmostApp.Dispose();
         screens.Dispose();
         Microphones.Dispose();

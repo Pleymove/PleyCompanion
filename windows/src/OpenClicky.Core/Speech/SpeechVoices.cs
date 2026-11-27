@@ -115,6 +115,8 @@ public static class SpeechVoiceChoices
                                             bool accountVoiceIsResting = false, Func<bool>? thisPCSpeaksLanguage = null)
     {
         var picked = FromStored(settings.SpeechVoice);
+        if (picked == SpeechVoiceChoice.Kokoro && languageCode == "fr")
+            return kokoroInstalled ? SpeechVoiceChoice.Kokoro : SpeechVoiceChoice.Mac;
         var kokoroCantSpeakLanguage = picked == SpeechVoiceChoice.Kokoro && KokoroVoice.SpeakerFor(languageCode, null) is null;
         var automaticCandidates = accountVoiceIsResting ? AutomaticOrder.Where(choice => choice != SpeechVoiceChoice.Account).ToList() : AutomaticOrder;
         IReadOnlyList<SpeechVoiceChoice> candidates = picked == SpeechVoiceChoice.Automatic || kokoroCantSpeakLanguage
