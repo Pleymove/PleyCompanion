@@ -1,3 +1,5 @@
+> **PleyCompanion** est un fork d’OpenClicky. La phase 1 cible la compilation, les tests et l’installateur Windows 11 x64. [Guide Windows](windows/README.md) · [Vision et conventions](AGENTS.md)
+
 # OpenClicky
 
 **Ask your Mac. It shows you where.** Hold ⌃ control + ⌥ option anywhere and ask out loud ("where do I
@@ -211,17 +213,11 @@ Notion / Sheets / Slack, and Wispr Flow import.
 - Pointing: drawing/circling on screen (HeyClicky's spatial context and hand-drawn annotations).
 - Agent: Composio + cua-driver end-to-end once those services are configured; barge-in/always-on voice.
 
-## Code signing policy
+## Windows code signing
 
-Windows releases are not code-signed yet, so SmartScreen may warn on first run; the policy below is what
-the signing will follow once the [SignPath Foundation](https://signpath.org) accepts the project into its
-free open-source program (free code signing provided by [SignPath.io](https://about.signpath.io)). Only binaries built by this
-repository's GitHub Actions workflow (`.github/workflows/windows-release.yml`) from its public source are
-signed, and only OpenClicky's own files: the third-party libraries it ships keep their publishers'
-signatures.
-
-- Committers and reviewers: [contributors to this repository](https://github.com/prasanthsasikumar/openclicky/graphs/contributors)
-- Approvers: [@prasanthsasikumar](https://github.com/prasanthsasikumar)
+PleyCompanion Phase 1 produces unsigned review installers as GitHub Actions artifacts. Windows
+security policies apply. The upstream OpenClicky signing policy is documented separately.
+[PleyCompanion Windows build guide](windows/README.md) · [OpenClicky signing notes](windows/docs/code-signing.md)
 
 **Privacy.** OpenClicky reaches other networked systems only for what you use it for:
 

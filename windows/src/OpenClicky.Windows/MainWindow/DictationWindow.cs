@@ -64,7 +64,7 @@ public sealed class DictationWindow : WpfUi.FluentWindow, IMainWindowActions
         rowFactory = new SettingsRowFactory(services, this);
         Tour = new SettingsTourController(services.Preferences, services.TourPointer, services.TourNarrator);
 
-        Title = "OpenClicky";
+        Title = AppIdentity.Name;
         ExtendsContentIntoTitleBar = true;
         WindowBackdropType = WpfUi.WindowBackdropType.Mica;
         WindowCornerPreference = WpfUi.WindowCornerPreference.Round;
@@ -77,7 +77,7 @@ public sealed class DictationWindow : WpfUi.FluentWindow, IMainWindowActions
 
         var titleBar = new WpfUi.TitleBar
         {
-            Title = "OpenClicky",
+            Title = AppIdentity.Name,
             Icon = titleBarIcon,
         };
         // The icon follows the colour picked in General (the taskbar shows the window's icon).

@@ -20,10 +20,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $name = 'sherpa-onnx-moonshine-tiny-en-int8'
-# Our own mirror (the repository's "models" prerelease) of sherpa-onnx's asr-models release, so a
-# build never depends on a third-party link; the upstream original is the same file, same hash:
-# https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$name.tar.bz2
-$url = "https://github.com/prasanthsasikumar/openclicky/releases/download/models/$name.tar.bz2"
+# Use the original public model release with the same pinned checksum as the OpenClicky mirror.
+$url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$name.tar.bz2"
 $sha256 = 'd5fe6ec4334fef36255b2a4010412cad4c007e33103fec62fb5d17cad88086f2'
 $files = @('preprocess.onnx', 'encode.int8.onnx', 'uncached_decode.int8.onnx', 'cached_decode.int8.onnx', 'tokens.txt', 'LICENSE')
 
@@ -33,7 +31,7 @@ if (@($files | Where-Object { -not (Test-Path (Join-Path $modelFolder $_)) }).Co
     return
 }
 
-$work = Join-Path ([System.IO.Path]::GetTempPath()) "openclicky-$name-$([guid]::NewGuid().ToString('N'))"
+$work = Join-Path ([System.IO.Path]::GetTempPath()) "pleycompanion-$name-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Force $work | Out-Null
 try {
     $archive = Join-Path $work "$name.tar.bz2"

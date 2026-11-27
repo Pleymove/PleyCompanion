@@ -10,6 +10,7 @@
 
 using System.Globalization;
 using System.Text;
+using OpenClicky.Core.Configuration;
 using OpenClicky.Core.Platform;
 using OpenClicky.Core.Shortcuts;
 
@@ -368,7 +369,7 @@ public static class LiveTypingExclusions
         "WindowsTerminal.exe", "OpenConsole.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe", "wt.exe", "mintty.exe",
     };
 
-    public const string OwnProcessName = "OpenClicky.exe";
+    public const string OwnProcessName = AppIdentity.ExecutableName;
 
     /// <summary>
     /// Why the focused field must not be typed into live (for the log), or null when it may be.

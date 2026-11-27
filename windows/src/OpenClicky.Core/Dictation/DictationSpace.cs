@@ -1,6 +1,6 @@
 // Ports Dictation/DictationSpace.swift: "your space": the styles each app is written in, the
 // dictionary of names spelled your way, and the spoken shortcuts that expand into saved text.
-// Three JSON files under %USERPROFILE%\.openclicky\dictation (styles.json, dictionary.json,
+// Three JSON files under %LOCALAPPDATA%\PleyCompanion\dictation (styles.json, dictionary.json,
 // shortcuts.json), readable and editable by hand, watched for changes made outside the app.
 //
 // The files have the Mac's JSON shape (keys sorted, dates in seconds since 1970, upper-case

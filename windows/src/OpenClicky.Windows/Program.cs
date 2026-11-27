@@ -1,6 +1,6 @@
 // The entry point (OpenClickyApp.swift's OpenClickyMain + CompanionAppDelegate's launch flags).
 // In order: Velopack's install/update hooks; the Kokoro, Parakeet and Moonshine helper processes (the same exe
-// with a flag, before any UI); the headless smoke and demo flags; one OpenClicky per session (a
+// with a flag, before any UI); the headless smoke and demo flags; one PleyCompanion per session (a
 // second launch opens the window of the first); then the WPF app with no main window, built by
 // AppComposition. Unhandled exceptions are written to app.log and the app keeps running.
 
@@ -23,7 +23,7 @@ public static class Program
     public static int Main(string[] args)
     {
         // Velopack first: an install, update or uninstall hook runs here and exits.
-        VelopackApp.Build().Run();
+        VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
 
         if (SherpaHelperMain.IsHelperInvocation(args)) return SherpaHelperMain.Run(args);
 
@@ -41,11 +41,11 @@ public static class Program
             return 0;
         }
 
-        AppLog.Write($"launch: OpenClicky {typeof(Program).Assembly.GetName().Version} ({RuntimeInformation.ProcessArchitecture}, {Environment.OSVersion.VersionString})");
+        AppLog.Write($"launch: {AppIdentity.Name} {typeof(Program).Assembly.GetName().Version} ({RuntimeInformation.ProcessArchitecture}, {Environment.OSVersion.VersionString})");
         using var singleInstance = new SingleInstance();
         if (!singleInstance.TryBecomePrimary(args))
         {
-            // Another OpenClicky runs: it got our arguments and opens its window.
+            // Another PleyCompanion runs: it got our arguments and opens its window.
             return 0;
         }
 

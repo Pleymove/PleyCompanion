@@ -1,5 +1,5 @@
 // Ports the OpenClickyShellSettings struct of OpenClickyConfiguration.swift: the fields of
-// %USERPROFILE%\.openclicky\shell.json, the file the `openclicky` CLI and the Mac app share. Same
+// %LOCALAPPDATA%\PleyCompanion\shell.json, the Windows settings file. Same
 // keys, same defaults; an optional that is null is left out of the file, as Swift's encoder does.
 // A field missing from the file takes its default (a short, hand-written shell.json is normal);
 // a field of the wrong type fails the read, so a mistake is reported instead of quietly replaced.

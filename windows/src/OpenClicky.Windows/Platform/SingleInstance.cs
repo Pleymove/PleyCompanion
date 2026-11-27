@@ -3,18 +3,19 @@ using System.IO;
 using System.IO.Pipes;
 using System.Security.Principal;
 using System.Text.Json;
+using OpenClicky.Core.Configuration;
 using OpenClicky.Core.Platform;
 
 namespace OpenClicky.Windows.Platform;
 
 /// <summary>
-/// One OpenClicky per user session: a named mutex in the session namespace, and a named pipe on
+/// One PleyCompanion per user session: a named mutex in the session namespace, and a named pipe on
 /// which the running instance receives a later launch's arguments (JSON array, one per connection).
-/// A relaunch passes <c>--openclicky-relaunched-from &lt;pid&gt;</c> so the new copy waits for the old one to exit before taking the mutex.
+/// A relaunch passes <c>--pleycompanion-relaunched-from &lt;pid&gt;</c> so the new copy waits for the old one to exit before taking the mutex.
 /// </summary>
 public sealed class SingleInstance : ISingleInstance
 {
-    public const string RelaunchedFromArgument = "--openclicky-relaunched-from";
+    public const string RelaunchedFromArgument = "--pleycompanion-relaunched-from";
 
     private readonly string mutexName;
     private readonly string pipeName;
@@ -22,7 +23,7 @@ public sealed class SingleInstance : ISingleInstance
     private Mutex? mutex;
     private bool ownsMutex;
 
-    public SingleInstance(string applicationId = "OpenClicky")
+    public SingleInstance(string applicationId = AppIdentity.Name)
     {
         var userId = WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
         mutexName = $@"Local\{applicationId}.SingleInstance.{userId}";

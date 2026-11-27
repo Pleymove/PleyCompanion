@@ -90,10 +90,12 @@ public sealed class OpenClickyPathsTests
     [Fact]
     public void ThePathsFollowTheGuide()
     {
-        Assert.EndsWith(Path.Combine(".openclicky", "shell.json"), OpenClickyPaths.ShellSettingsFile);
-        Assert.EndsWith(Path.Combine("OpenClicky", "Logs", "app.log"), OpenClickyPaths.LogFile);
-        Assert.EndsWith(Path.Combine("OpenClicky", "preferences.json"), OpenClickyPaths.PreferencesFile);
-        Assert.EndsWith(Path.Combine("OpenClicky", "dictation.sqlite"), OpenClickyPaths.DictationDatabaseFile);
+        var appData = Path.Combine(OpenClickyPaths.LocalAppDataDirectory, "PleyCompanion");
+        Assert.Equal(Path.Combine(appData, "shell.json"), OpenClickyPaths.ShellSettingsFile);
+        Assert.Equal(Path.Combine(appData, "Logs", "app.log"), OpenClickyPaths.LogFile);
+        Assert.Equal(Path.Combine(appData, "preferences.json"), OpenClickyPaths.PreferencesFile);
+        Assert.Equal(Path.Combine(appData, "dictation.sqlite"), OpenClickyPaths.DictationDatabaseFile);
+        Assert.Equal(Path.Combine(OpenClickyPaths.HomeDirectory, "PleyCompanion"), OpenClickyPaths.DefaultWorkspace);
     }
 }
 

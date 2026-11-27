@@ -1,16 +1,17 @@
 using System.IO;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using OpenClicky.Core.Configuration;
 using OpenClicky.Core.Platform;
 using Windows.Networking.Connectivity;
 
 namespace OpenClicky.Windows.Platform;
 
-/// <summary>"Open at login" through HKCU\Software\Microsoft\Windows\CurrentVersion\Run, value "OpenClicky".</summary>
+/// <summary>"Open at login" through HKCU\Software\Microsoft\Windows\CurrentVersion\Run, value "PleyCompanion".</summary>
 public sealed class RunKeyLoginItem : ILoginItem
 {
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string ValueName = "OpenClicky";
+    private const string ValueName = AppIdentity.Name;
 
     public bool IsEnabled
     {
@@ -39,8 +40,8 @@ public sealed class RunKeyLoginItem : ILoginItem
     }
 
     /// <summary>
-    /// Velopack installs to %LOCALAPPDATA%\OpenClicky\current\OpenClicky.exe with a stub launcher at
-    /// %LOCALAPPDATA%\OpenClicky\OpenClicky.exe that survives updates (current\ is replaced): when the
+    /// Velopack installs to %LOCALAPPDATA%\PleyCompanion.Windows\current\PleyCompanion.exe with a stub launcher at
+    /// %LOCALAPPDATA%\PleyCompanion.Windows\PleyCompanion.exe that survives updates (current\ is replaced): when the
     /// running exe sits in "current" and the stub exists, the stub is what starts at login.
     /// </summary>
     internal static string LaunchExecutablePath()

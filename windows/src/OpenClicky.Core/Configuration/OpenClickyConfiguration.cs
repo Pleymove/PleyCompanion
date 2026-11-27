@@ -1,5 +1,5 @@
 // Ports OpenClickyConfiguration.swift: where the backend lives, the user's token, and how to run
-// the `openclicky` CLI. Read from %USERPROFILE%\.openclicky\shell.json (shared with the CLI) with
+// the `openclicky` CLI. Read from %LOCALAPPDATA%\PleyCompanion\shell.json with
 // environment overrides. The app never holds provider keys for the backend — only the user's
 // OpenClicky token, which the backend verifies; own keys go straight to their vendors.
 
@@ -256,7 +256,7 @@ public static class OpenClickyConfiguration
     public static string? SettingsFileProblem { get; private set; }
 
     public static string UnreadableSettingsFileSentence(string reason) =>
-        $"your settings file (%USERPROFILE%\\.openclicky\\shell.json) has a mistake in it: {reason}. openclicky won't change it until it's fixed.";
+        $"your settings file ({SettingsFilePath}) has a mistake in it: {reason}. openclicky won't change it until it's fixed.";
 
     private static bool IsRealSettingsFile(string filePath) =>
         string.Equals(Path.GetFullPath(filePath), Path.GetFullPath(SettingsFilePath), StringComparison.OrdinalIgnoreCase);
@@ -473,7 +473,7 @@ public static class OpenClickyConfiguration
 
     /// <summary>
     /// App-teaching skills: `appSkillsPath` from shell.json, else derived from the CLI path
-    /// (`…\agent\dist\cli.js` → `…\app-skills`), else %USERPROFILE%\.openclicky\app-skills.
+    /// (`…\agent\dist\cli.js` → `…\app-skills`), else %LOCALAPPDATA%\PleyCompanion\app-skills.
     /// </summary>
     public static string AppSkillsDirectory => AppSkillsDirectoryFor(Settings);
 
@@ -536,6 +536,8 @@ public static class OpenClickyConfiguration
         if (Cleaned(shellSettings.Token) is { } token) environment["OPENCLICKY_TOKEN"] = token;
         if (Cleaned(shellSettings.Model) is { } model) environment["OPENCLICKY_MODEL"] = model;
         environment["OPENCLICKY_WORKSPACE"] = OpenClickyPaths.ExpandTilde(shellSettings.Workspace);
+        environment.TryAdd("OPENCLICKY_CODEX_HOME", Path.Combine(OpenClickyPaths.AppDataDirectory, "codex-home"));
+        environment.TryAdd("OPENCLICKY_USER_SKILLS_DIR", OpenClickyPaths.UserSkillsDirectory);
         if (shellSettings.WritableRoots is { } writableRoots) environment["OPENCLICKY_WRITABLE_ROOTS"] = string.Join(",", writableRoots);
 #pragma warning disable CS0162
         if (ConnectorsEnabled && !string.IsNullOrEmpty(shellSettings.ComposioMcpUrl)) environment["COMPOSIO_MCP_URL"] = shellSettings.ComposioMcpUrl;

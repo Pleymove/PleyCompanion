@@ -124,7 +124,7 @@ public sealed class SettingsCatalog
                 ["tour", "crash course", "show me around", "help", "guide", "replay", "walkthrough"]),
             Item("general.reduceMotion", "Reduce motion", "The orb and the island appear and leave without animating.",
                 ["animation", "motion", "accessibility", "calm"]),
-            Item("about.autoUpdate", "Check for updates daily", "Updates come from OpenClicky’s GitHub releases.",
+            Item("about.autoUpdate", "Check for updates daily", "Updates come from PleyCompanion’s GitHub releases.",
                 ["update", "updates", "automatic", "velopack", "version"]),
         ];
     }
@@ -517,7 +517,7 @@ public sealed class SettingsCatalog
         },
     ];
 
-    public const string KeysNoteText = "Your keys go straight to that provider, never through OpenClicky, and are used instead of the free credits. Stored in %USERPROFILE%\\.openclicky\\shell.json.";
+    public const string KeysNoteText = "Your keys go straight to that provider, never through OpenClicky, and are used instead of the free credits. Stored in %LOCALAPPDATA%\\PleyCompanion\\shell.json.";
 
     public const string PlansNoteText = "A plan answers questions, points, and does quick actions like opening apps or making folders. Bigger tasks need the agent. Codex answers in one go, a few seconds after you ask.";
 
@@ -609,7 +609,7 @@ public sealed class SettingsCatalog
         };
         return
         [
-            Item("about.app", "", "OpenClicky", VersionLine(AppVersion.ShortVersion, AppVersion.BuildNumber),
+            Item("about.app", "", AppIdentity.Name, VersionLine(AppVersion.ShortVersion, AppVersion.BuildNumber),
                 ["version", "about", "build", "mit", "license", "update", "updates", "velopack", "check now"]),
             Item("about.source", "Help", "Source code", "Issues and pull requests welcome.", ["github", "source", "license", "mit", "code"]),
             Item("about.reportBug", "Help", "Report a bug", "Attach the log. It lists what each take did, not what you said.",
@@ -639,7 +639,7 @@ public static class AppVersion
         }
     }
 
-    public const string SourceUrl = "https://github.com/prasanthsasikumar/openclicky";
-    public const string IssuesUrl = "https://github.com/prasanthsasikumar/openclicky/issues";
-    public const string ReadmeUrl = "https://github.com/prasanthsasikumar/openclicky#readme";
+    public const string SourceUrl = AppIdentity.RepositoryUrl;
+    public const string IssuesUrl = SourceUrl + "/issues";
+    public const string ReadmeUrl = SourceUrl + "#readme";
 }

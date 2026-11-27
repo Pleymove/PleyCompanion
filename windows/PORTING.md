@@ -1,5 +1,7 @@
 # OpenClicky for Windows — porting guide
 
+> This guide records the upstream port. See the [PleyCompanion Windows guide](README.md) for the current build, packaging, data paths, and validation procedure.
+
 The Windows app is a port of `macos/OpenClicky` (Swift/SwiftUI, ~35k lines) to **C# / .NET 8 / WPF**.
 Goal: **the same features, in Windows idioms**. Every Swift file has a home below. When porting a file,
 read the Swift source (and its tests in `macos/OpenClicky/OpenClickyTests/`) and keep its behaviour,

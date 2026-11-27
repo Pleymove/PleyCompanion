@@ -104,5 +104,5 @@ public static class DS
 
     /// <summary>The shared resource dictionary (OpenClickyTheme.xaml), for windows that use XAML resources.</summary>
     public static ResourceDictionary LoadResources() =>
-        new() { Source = new Uri("pack://application:,,,/OpenClicky;component/Theme/OpenClickyTheme.xaml", UriKind.Absolute) };
+        new() { Source = new Uri($"pack://application:,,,/{typeof(DS).Assembly.GetName().Name};component/Theme/OpenClickyTheme.xaml", UriKind.Absolute) };
 }

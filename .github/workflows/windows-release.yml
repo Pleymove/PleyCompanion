@@ -1,179 +1,87 @@
-name: windows-release
-
-# Attaches OpenClicky for Windows (x64 + ARM64) to a release, next to the dmg and zip that
-# macos/OpenClicky/scripts/release.sh uploads. Run by hand (Actions → windows-release → Run workflow)
-# with the release's tag: a Mac release never ships Windows on its own, so Windows goes out only when
-# the maintainer chooses, the same as Linux. The app is built from that tag, signed through SignPath
-# Foundation's free open-source program when the repository is set up for it, packed with Velopack
-# and uploaded to the release, where the app's updater finds it.
-#
-# Signing is skipped until the repository variable SIGNPATH_ORGANIZATION_ID exists, so the workflow
-# also produces (unsigned) releases before SignPath has approved the project. Setup:
-# windows/docs/code-signing.md.
+name: Windows x64 - build, tests and installer
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-release.yml'
+      - 'LICENSE'
+  pull_request:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-release.yml'
+      - 'LICENSE'
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Release tag to attach the Windows installers to (e.g. v0.9.0); the version is the tag without the v'
-        required: true
-      publish:
-        description: 'Upload to the release (off: keep the files with the run only)'
-        type: boolean
-        default: true
+      version:
+        description: 'Optional version (X.Y.Z or X.Y.Z-tag.N); defaults to windows/Directory.Build.props'
+        type: string
+        required: false
 
 permissions:
-  contents: write   # vpk upload creates and updates the release
-  actions: read     # SignPath reads the unsigned build artifacts of this run
+  contents: read
 
 jobs:
-  windows:
-    # Forks publish their own builds by hand; only the canonical repo uploads here.
-    if: github.repository == 'prasanthsasikumar/openclicky'
-    runs-on: windows-latest
-    strategy:
-      # Both architectures upload into the same GitHub release with --merge; one at a time.
-      max-parallel: 1
-      matrix:
-        include:
-          - runtime: win-x64
-            channel: win
-          - runtime: win-arm64
-            channel: win-arm64
-    env:
-      SIGNING: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
-      PUBLISH: ${{ inputs.publish }}
-      PUBLISH_DIR: windows/publish/${{ matrix.runtime }}
-      RELEASE_DIR: windows/Releases/${{ matrix.runtime }}
+  windows-client:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: windows
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
-
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          global-json-file: windows/global.json
 
-      - name: Version
-        id: version
-        shell: pwsh
-        run: |
-          $version = '${{ inputs.tag }}'.TrimStart('v')
-          if ($version -notmatch '^\d+\.\d+\.\d+') { throw "tag '${{ inputs.tag }}' is not vX.Y.Z" }
-          "value=$version" >> $env:GITHUB_OUTPUT
+      - name: Build the Windows solution
+        run: dotnet build OpenClicky.Windows.sln -c Release -p:RestoreLockedMode=true
 
-      - name: Test
-        if: matrix.runtime == 'win-x64'
-        run: dotnet test windows/tests/OpenClicky.Core.Tests -c Release
-
-      - name: Fetch the built-in dictation model
-        shell: pwsh
-        run: ./windows/scripts/fetch-speech-model.ps1
-
-      - name: Publish
+      - name: Run the Windows Core tests
+        id: tests
         run: >
-          dotnet publish windows/src/OpenClicky.Windows/OpenClicky.Windows.csproj -c Release
-          -r ${{ matrix.runtime }} --self-contained true -p:Version=${{ steps.version.outputs.value }}
-          -o ${{ env.PUBLISH_DIR }}
+          dotnet test tests/OpenClicky.Core.Tests -c Release --no-build
+          --logger 'trx;LogFileName=windows-x64.trx' --results-directory "${{ runner.temp }}/pley-test-results"
 
-      # SignPath signs only OpenClicky's own binaries (artifact configuration "app"), returning the
-      # whole folder with those files replaced.
-      - name: Upload the unsigned app for signing
-        id: unsigned-app
-        if: env.SIGNING == 'true'
+      - name: Keep the test results
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ matrix.runtime }}-unsigned
-          path: ${{ env.PUBLISH_DIR }}
+          name: windows-x64-test-results
+          path: ${{ runner.temp }}/pley-test-results/windows-x64.trx
+          if-no-files-found: error
 
-      - name: Sign the app (SignPath)
-        if: env.SIGNING == 'true'
-        uses: signpath/github-action-submit-signing-request@v1
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: app
-          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: ${{ env.PUBLISH_DIR }}
-
-      - name: Install vpk
-        run: dotnet tool install -g vpk --version 1.2.161
-
-      - name: Fetch the last release for a delta
-        if: env.PUBLISH == 'true'
-        shell: pwsh
-        run: |
-          vpk download github --repoUrl '${{ github.server_url }}/${{ github.repository }}' `
-            --token '${{ secrets.GITHUB_TOKEN }}' --channel ${{ matrix.channel }} -o '${{ env.RELEASE_DIR }}'
-          if ($LASTEXITCODE -ne 0) { Write-Warning 'no earlier release; packing a full package only' }
-          exit 0
-
-      # Package id "OpenClicky.Windows", not "OpenClicky": Velopack deletes %LOCALAPPDATA%\<packId> on
-      # uninstall, and the app keeps its history and models in %LOCALAPPDATA%\OpenClicky.
-      - name: Pack
-        shell: pwsh
-        run: |
-          vpk pack --packId OpenClicky.Windows --packVersion ${{ steps.version.outputs.value }} `
-            --packDir '${{ env.PUBLISH_DIR }}' --mainExe OpenClicky.exe --packTitle OpenClicky --packAuthors OpenClicky `
-            --icon windows/src/OpenClicky.Windows/Assets/OpenClicky.ico --runtime ${{ matrix.runtime }} `
-            --channel ${{ matrix.channel }} --shortcuts 'Desktop,StartMenuRoot' -o '${{ env.RELEASE_DIR }}'
-
-      # Velopack writes Setup.exe after the app was signed, so it goes through SignPath on its own
-      # (artifact configuration "installer").
-      - name: Upload the unsigned installer for signing
-        id: unsigned-installer
-        if: env.SIGNING == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: installer-${{ matrix.runtime }}-unsigned
-          path: ${{ env.RELEASE_DIR }}/*-Setup.exe
-
-      - name: Sign the installer (SignPath)
-        if: env.SIGNING == 'true'
-        uses: signpath/github-action-submit-signing-request@v1
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: installer
-          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: ${{ env.RELEASE_DIR }}
-
-      - name: Upload to GitHub Releases
-        if: env.PUBLISH == 'true'
-        shell: pwsh
-        run: |
-          vpk upload github --repoUrl '${{ github.server_url }}/${{ github.repository }}' `
-            --token '${{ secrets.GITHUB_TOKEN }}' --channel ${{ matrix.channel }} -o '${{ env.RELEASE_DIR }}' `
-            --merge --releaseName 'OpenClicky ${{ steps.version.outputs.value }}' `
-            --tag 'v${{ steps.version.outputs.value }}' --publish
-
-      - name: Keep the release files with the run
-        if: env.PUBLISH != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.runtime }}
-          path: ${{ env.RELEASE_DIR }}
-
-  release-page:
-    # The page lists what's new by platform and a row per download; rebuild it now that these files
-    # are attached. From the default branch: older tags have no update-release-page.sh.
-    needs: windows
-    if: inputs.publish
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Rebuild the release page
+      - name: Summarize the test results
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/update-release-page.sh '${{ inputs.tag }}'${{ vars.SIGNPATH_ORGANIZATION_ID != '' && ' --windows-signed' || '' }}
+          PLEY_TEST_RESULTS: ${{ runner.temp }}/pley-test-results/windows-x64.trx
+        run: |
+          [xml] $report = Get-Content -LiteralPath $env:PLEY_TEST_RESULTS -Raw
+          $counts = $report.TestRun.ResultSummary.Counters
+          @(
+            '### Windows x64 Core tests'
+            ''
+            "| Total | Passed | Failed | Skipped |"
+            "| --- | --- | --- | --- |"
+            "| $($counts.total) | $($counts.passed) | $($counts.failed) | $($counts.notExecuted) |"
+          ) >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Build the Velopack installer
+        if: github.event_name != 'push'
+        env:
+          PLEY_BUILD_VERSION: ${{ inputs.version }}
+        run: ./installer/build-release.ps1 -Version $env:PLEY_BUILD_VERSION
+
+      - name: Keep the installer with this run
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PleyCompanion-windows-x64
+          path: |
+            windows/Releases/win-x64/PleyCompanion-Setup.exe
+            windows/Releases/win-x64/SHA256SUMS.txt
+          if-no-files-found: error

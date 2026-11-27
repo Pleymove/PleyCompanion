@@ -14,6 +14,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using OpenClicky.Core.Dictation;
+using OpenClicky.Core.Configuration;
 using OpenClicky.Core.Platform;
 
 namespace OpenClicky.Core.Answers;
@@ -70,7 +71,7 @@ public sealed record WritingTarget(WritingScope Scope, string Text, string? AppP
     public const int MaximumCharacters = 6_000;
 
     /// <summary>OpenClicky's own process image name (the Mac compared Bundle.main.bundleIdentifier).</summary>
-    public const string OwnProcessName = "OpenClicky.exe";
+    public const string OwnProcessName = AppIdentity.ExecutableName;
 
     /// <summary>The target in a snapshot of the focused element, or null when there is nothing to rewrite.</summary>
     public static WritingTarget? Target(WritingFieldSnapshot snapshot, string? ownProcessName = OwnProcessName)

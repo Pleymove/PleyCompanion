@@ -52,6 +52,8 @@ public sealed class OpenClickyConfigurationTests : IDisposable
         Assert.False(environment.ContainsKey("ANTHROPIC_API_KEY"));
         Assert.False(environment.ContainsKey("OPENCLICKY_ANTHROPIC_KEY"));
         Assert.Equal(OpenClickyConfiguration.HostedBackendUrl, environment["BACKEND_URL"]);
+        Assert.Equal(Path.Combine(OpenClickyPaths.AppDataDirectory, "codex-home"), environment["OPENCLICKY_CODEX_HOME"]);
+        Assert.Equal(OpenClickyPaths.UserSkillsDirectory, environment["OPENCLICKY_USER_SKILLS_DIR"]);
         Assert.EndsWith("C:\\bin", environment["PATH"]);
     }
 

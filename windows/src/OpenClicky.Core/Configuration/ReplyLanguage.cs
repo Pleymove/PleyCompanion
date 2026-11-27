@@ -1,5 +1,5 @@
 // Ports ReplyLanguage.swift: the one language OpenClicky speaks, from `language` in
-// %USERPROFILE%\.openclicky\shell.json (Settings → Voice → Language), English until another is
+// %LOCALAPPDATA%\PleyCompanion\shell.json (Settings → Voice → Language), English until another is
 // chosen.
 //
 // The Realtime prompt used to say "Speak English unless the user speaks another language", and

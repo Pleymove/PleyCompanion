@@ -363,7 +363,7 @@ public class LiveTypingDecisionTests
     public void OpenClickysOwnWindowsAreNeverTypedIntoLive()
     {
         Assert.NotNull(LiveTypingExclusions.ReasonNotToType(new LiveTypingTargetIdentity(1, null), null, ownProcessId: 1));
-        Assert.NotNull(LiveTypingExclusions.ReasonNotToType(new LiveTypingTargetIdentity(2, "OpenClicky.exe"), null, ownProcessId: 1));
+        Assert.NotNull(LiveTypingExclusions.ReasonNotToType(new LiveTypingTargetIdentity(2, "PleyCompanion.exe"), null, ownProcessId: 1));
         Assert.NotNull(LiveTypingExclusions.ReasonNotToType(new LiveTypingTargetIdentity(2, "openclicky"), null, ownProcessId: 1));
     }
 

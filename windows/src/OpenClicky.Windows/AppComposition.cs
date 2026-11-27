@@ -128,7 +128,7 @@ public sealed class AppComposition : ICompanionHost, IDisposable
         // The Teacher plugin's board windows (its state is Core's TeacherBoard).
         TeacherBoard.Shared.Surface = new TeacherBoardWindows(platform.Screens);
         // The drawing stage's window (its state is Core's DrawStageController); WebView2 starts the first time it is shown.
-        // Its drawings are saved to Videos\OpenClicky as a picture and a video.
+        // Its drawings are saved to Videos\PleyCompanion as a picture and a video.
         var drawStageWindow = new DrawStageWindow();
         DrawStageController.Shared.Surface = drawStageWindow;
         DrawStageController.Shared.Saver = new DrawingRecorder(drawStageWindow, DrawStageController.Shared);
@@ -147,7 +147,7 @@ public sealed class AppComposition : ICompanionHost, IDisposable
         Companion = new CompanionManager(services,
             new CompanionModels(companionUi.Overlay, companionUi.Island, companionUi.Orb, companionUi.AgentCard), this);
 
-        updater = new VelopackAppUpdater(preferences, new UpdatePromptSheets(dispatcher, dictationSettings));
+        updater = new VelopackAppUpdater(preferences, new UpdatePromptSheets(dispatcher, dictationSettings), enableUpdateFeed: false);
         trayIcon = new TrayIcon(ReadTrayState);
         WireTray();
 
@@ -161,7 +161,7 @@ public sealed class AppComposition : ICompanionHost, IDisposable
     public static void RegisterLocalModels(IProcessRunner processes, INetworkReachability network, Preferences preferences, IMainThread? mainThread,
                                            DictationSettings? dictationSettings = null)
     {
-        var helperPath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "OpenClicky.exe");
+        var helperPath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, AppIdentity.ExecutableName);
         KokoroVoice.Shared ??= new KokoroVoice(processes, network, preferences, helperPath, mainThread);
         MoonshineDictation.Shared ??= new MoonshineDictation(processes, helperPath);
         if (ParakeetDictation.Shared is null)
