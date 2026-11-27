@@ -53,6 +53,25 @@ public class ModelDownloadTests
     }
 
     [Fact]
+    public async Task AnInvalidPackageIsNeverPublished()
+    {
+        var folder = Directory.CreateTempSubdirectory("pley-invalid-model-").FullName;
+        try
+        {
+            var final = Path.Combine(folder, "the-model");
+            await Assert.ThrowsAsync<ModelDownloadException>(() => ModelDownload.UnpackAsync("archive.tar.bz2", folder,
+                new FakeTar(final), CancellationToken.None,
+                staging => File.Exists(Path.Combine(staging, "the-model", "decoder.onnx"))));
+            Assert.False(Directory.Exists(final));
+            Assert.False(Directory.Exists(Path.Combine(folder, ".unpacking")));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
     public void TheChecksumIsLowerCaseHexSha256()
     {
         var path = Path.GetTempFileName();
