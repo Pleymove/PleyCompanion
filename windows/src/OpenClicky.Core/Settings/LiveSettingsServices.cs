@@ -107,16 +107,15 @@ public sealed class LiveSettingsServices(IModelDownload kokoro, IModelDownload p
         var shell = OpenClickyConfiguration.Settings;
         var hasAccount = OpenClickyConfiguration.HasAccountToken;
         var languageCode = ReplyLanguage.CurrentCode;
-        var kokoroInstalled = Kokoro.State.Kind == ModelDownloadState.Stage.Installed;
         var picked = SpeechVoiceChoices.FromStored(shell.SpeechVoice);
-        var offered = SpeechVoiceChoices.Offered(shell, hasAccount, languageCode);
-        var speaking = SpeechVoiceChoices.Resolve(shell, hasAccount, kokoroInstalled, languageCode);
+        var offered = SpeechVoiceChoices.Offered(shell, hasAccount, languageCode, SpeechVoiceChoices.IsLocalVoiceInstalled);
+        var speaking = SpeechVoiceChoices.Current();
         string sentence;
         if (picked != SpeechVoiceChoice.Automatic && picked != speaking)
         {
             var standIn = speaking == SpeechVoiceChoice.Account ? "the free voice" : "this PC’s voice";
-            sentence = picked == SpeechVoiceChoice.Kokoro
-                ? $"{standIn} until Kokoro is downloaded."
+            sentence = VoiceModelCatalog.FindVoice(picked) is not null
+                ? $"{speaking.Title()} · {picked.Title()} indisponible pour la langue ou le modèle sélectionné."
                 : $"{standIn}: {picked.Title()} needs its key under Keys & Account.";
         }
         else
@@ -129,6 +128,7 @@ public sealed class LiveSettingsServices(IModelDownload kokoro, IModelDownload p
                 SpeechVoiceChoice.Gemini => "Google Gemini, on your own key.",
                 SpeechVoiceChoice.Polly => "Amazon Polly, on your own key.",
                 SpeechVoiceChoice.Sarvam => "Sarvam, on your own key.",
+                SpeechVoiceChoice.Piper => "Piper Siwis, sur ce PC.",
                 SpeechVoiceChoice.Kokoro => "Kokoro, on this PC. Free, offline, nothing counted.",
                 SpeechVoiceChoice.Account => "ElevenLabs, through OpenClicky.",
                 _ => "this PC’s voice. Free, offline, nothing counted.",

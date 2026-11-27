@@ -23,7 +23,7 @@ public sealed class VoiceModelRuntime(IProcessRunner processes, string executabl
 
     public void SelectRecognizer(LocalSttModel model, DictationSettings settings)
     {
-        if (FindRecognizer(model)?.IsModelInstalled != true) return;
+        if (FindRecognizer(model) is not { IsModelInstalled: true } next) return;
         var previous = ParakeetDictation.Current;
         OpenClickyConfiguration.Update(shell =>
         {
@@ -31,7 +31,18 @@ public sealed class VoiceModelRuntime(IProcessRunner processes, string executabl
             shell.TranscriptionProvider = "parakeet";
         });
         settings.Engine = DictationEngineChoice.Parakeet;
-        if (previous is not null && previous != FindRecognizer(model)) _ = previous.UnloadAsync();
+        if (previous is not null && previous != next) _ = previous.UnloadAsync();
+    }
+
+    public async Task RemoveRecognizerAsync(LocalSttModel model)
+    {
+        if (FindRecognizer(model) is not { } recognizer) return;
+        await recognizer.RemoveAsync();
+        if (recognizer.IsModelInstalled || ParakeetDictation.SelectedModel != model) return;
+        var fallback = VoiceModelCatalog.Recognition.FirstOrDefault(candidate => FindRecognizer(candidate)?.IsModelInstalled == true);
+        if (fallback is null) return;
+        OpenClickyConfiguration.Update(shell => shell.ParakeetModel =
+            fallback == VoiceModelCatalog.ParakeetV3 ? null : fallback.Info.Id);
     }
 
     public void SelectMoonshine(DictationSettings settings)

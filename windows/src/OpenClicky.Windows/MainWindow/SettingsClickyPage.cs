@@ -1,7 +1,7 @@
 // Ports Dictation/UI/SettingsClickyPage.swift: Settings → Clicky's rows. Who answers and the Claude
 // model, when the pointer shows (one picker over two settings, PointerShowsChoice), agent mode and its
 // workspace, and the voice: the language Clicky speaks and listens in, who speaks the answers with
-// Kokoro's and this PC's own rows, fast voice, hands-free and who runs them (Voice was a page of its
+// this PC's own rows, fast voice, hands-free and who runs them (Voice was a page of its
 // own; SettingsLayout now puts it on Clicky). The voice picker's rules come from ISettingsServices (SpeechVoiceChoice); this PC's
 // voice is Windows' own (ISystemVoice), the Mac voice's twin.
 
@@ -9,6 +9,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using OpenClicky.Core.Configuration;
+using OpenClicky.Core.Dictation;
 using OpenClicky.Core.Pointing;
 using OpenClicky.Core.Providers;
 using OpenClicky.Core.Settings;
@@ -156,28 +157,30 @@ internal sealed partial class SettingsRowFactory
                     var selected = current switch
                     {
                         BuddyTranscriptionProviderFactory.PreferredProvider.Parakeet => "parakeet",
+                        BuddyTranscriptionProviderFactory.PreferredProvider.Moonshine => "moonshine",
                         BuddyTranscriptionProviderFactory.PreferredProvider.OfflineSpeech => "offline",
                         BuddyTranscriptionProviderFactory.PreferredProvider.OpenAI => "openai",
                         BuddyTranscriptionProviderFactory.PreferredProvider.AssemblyAI => "assemblyai",
                         _ => "auto",
                     };
-                    var picker = Ui.Picker(new[]
+                    var providers = new List<(string, string)>
                     {
-                        ("auto", "Automatique"), ("parakeet", "Parakeet (local)"),
+                        ("auto", "Automatique"), ("parakeet", ParakeetDictation.SelectedModel.Info.Name),
                         ("offline", "Moteurs du PC"), ("openai", "OpenAI (en ligne)"), ("assemblyai", "AssemblyAI (en ligne)"),
-                    }, selected, choice =>
+                    };
+                    if (MoonshineFacts.IsInstalled || selected == "moonshine") providers.Insert(2, ("moonshine", "Moonshine Tiny"));
+                    var picker = Ui.Picker(providers, selected, choice =>
                     {
                         OpenClickyConfiguration.Update(shell => shell.TranscriptionProvider = choice == "auto" ? null : choice);
                         ShellSettingsRevision.NoteChanged();
                     }, 170);
-                    UIElement controls = selected == "parakeet" && !ParakeetDictation.IsInstalled
-                        ? Ui.HStack(8, picker, Ui.Button("Télécharger…", () => actions.ShowSettings(DictationSettingsPage.Dictation)))
-                        : picker;
-                    return Ui.Card(Ui.Row(item.Title, item.Detail, query, controls));
-                }, Changes.Shell, Changes.Of(services.Services.Parakeet));
+                    return Ui.Card(Ui.Row(item.Title, item.Detail, query,
+                        Ui.HStack(8, picker, Ui.Button("Modèles locaux", () => actions.ShowSettings(DictationSettingsPage.Recognition)))));
+                }, Changes.Shell);
             case "clicky.speechVoice":
-                return new LiveContent(() => SpeechVoiceRows(item, query), Changes.Shell, Changes.Of(Settings, nameof(Core.Dictation.DictationSettings.Region)),
-                    Changes.Of(services.Services.Kokoro));
+                var voices = (services.VoiceModels?.Models ?? []).OfType<LocalSpeechVoice>().Select(model => Changes.Of(model));
+                return new LiveContent(() => SpeechVoiceRows(item, query),
+                    [Changes.Shell, Changes.Of(Settings, nameof(Core.Dictation.DictationSettings.Region)), .. voices]);
             case "clicky.emailApp":
                 // emailApp in shell.json: automatic saves nothing; anything unknown (the Mac's "mail") shows as automatic.
                 return new LiveContent(() =>
@@ -225,7 +228,8 @@ internal sealed partial class SettingsRowFactory
                 voices.PickVoice(voiceId);
                 ShellSettingsRevision.NoteChanged();
             }, 200))));
-        if (picker.ShowsKokoroRows) foreach (var row in KokoroRows()) stack.Children.Add(row);
+        stack.Children.Add(Ui.Card(Ui.Row("Modèles de synthèse locale", "Téléchargez un modèle et écoutez un extrait.", query,
+            Ui.Button("Gérer", () => actions.ShowSettings(DictationSettingsPage.Synthesis)))));
         if (!string.IsNullOrWhiteSpace(OpenClickyConfiguration.Settings.GeminiApiKey)) stack.Children.Add(GeminiVoiceRow());
         if (picker.ShowsSystemVoiceRow) foreach (var row in SystemVoiceRows()) stack.Children.Add(row);
         if (picker.HasMoreVoices)
@@ -258,48 +262,6 @@ internal sealed partial class SettingsRowFactory
             detail += $" Pick “{SpeechVoiceChoice.Gemini.Title()}” above for {language} answers in it.";
         }
         return Ui.Card(Ui.Row("Gemini voice", detail, "", Ui.HStack(8, picker, Ui.Button("Preview", () => _ = services.Services.PreviewVoiceAsync("gemini")))));
-    }
-
-    /// <summary>Kokoro's rows: the download (progress, cancel, retry), then which speaker, a preview, and removing the download.</summary>
-    private IEnumerable<UIElement> KokoroRows()
-    {
-        var kokoro = services.Services.Kokoro;
-        var state = kokoro.State;
-        switch (state.Kind)
-        {
-            case ModelDownloadState.Stage.NotInstalled:
-                yield return Ui.Card(Ui.Row("Kokoro", $"An open voice model that runs on this PC, free and offline. {kokoro.DownloadSizeText} to download.", "",
-                    Ui.Button("Download", kokoro.Download)));
-                break;
-            case ModelDownloadState.Stage.Downloading:
-                yield return Ui.Card(Ui.Row("Downloading Kokoro", $"{(int)Math.Round(state.Fraction * 100)}% of {kokoro.DownloadSizeText}. Answers keep the current voice until it’s ready.", "",
-                    Ui.HStack(8, new ProgressBar { Width = 120, Maximum = 1, Value = state.Fraction }, Ui.Button("Cancel", kokoro.CancelDownload))));
-                break;
-            case ModelDownloadState.Stage.Unpacking:
-                yield return Ui.Card(Ui.Row("Unpacking Kokoro", "Almost there.", "", new Wpf.Ui.Controls.ProgressRing { IsIndeterminate = true, Width = 18, Height = 18 }));
-                break;
-            case ModelDownloadState.Stage.Failed:
-                yield return Ui.Card(Ui.Row("Kokoro", state.Message, "", Ui.Button("Try Again", kokoro.Download), SettingsLook.Danger));
-                break;
-            default:
-                var language = ReplyLanguage.CurrentCode;
-                var speakers = services.Services.KokoroSpeakers(language);
-                var current = services.Services.CurrentKokoroSpeaker(language);
-                UIElement speakerControls = Ui.HStack(8,
-                    speakers.Count > 0
-                        ? Ui.Picker(speakers.Select(speaker => (speaker.Id, speaker.Title)), current ?? "", speakerId =>
-                        {
-                            if (int.TryParse(speakerId, out var speakerNumber)) OpenClickyConfiguration.Update(shell => shell.KokoroSpeaker = speakerNumber);
-                            ShellSettingsRevision.NoteChanged();
-                            _ = services.Services.PreviewVoiceAsync("kokoro");
-                        }, 180, maxWidth: 220)
-                        : null,
-                    Ui.Button("Preview", () => _ = services.Services.PreviewVoiceAsync("kokoro")));
-                yield return Ui.Card(Ui.Row("Kokoro voice", "The first answer after launch takes a few seconds while the model loads.", "", speakerControls));
-                yield return Ui.Card(Ui.Row("Kokoro download", @"%LOCALAPPDATA%\PleyCompanion\Models\Kokoro", "",
-                    Ui.Button("Remove", kokoro.Remove)));
-                break;
-        }
     }
 
     /// <summary>This PC's voice: which one, a preview, and where Windows downloads the better ones.</summary>

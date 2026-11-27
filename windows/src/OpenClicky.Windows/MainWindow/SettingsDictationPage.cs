@@ -91,7 +91,8 @@ internal sealed partial class SettingsRowFactory
     /// </summary>
     private LiveContent EngineOption(DictationEngineChoice choice, string query)
     {
-        var parakeet = services.Services.Parakeet;
+        var models = (services.VoiceModels?.Models ?? []).OfType<ParakeetDictation>()
+            .Select(model => Changes.Of(model)).ToArray();
         return new LiveContent(() =>
         {
             var isSelected = Settings.Engine == choice;
@@ -103,19 +104,17 @@ internal sealed partial class SettingsRowFactory
                 badgeText.ToolTip = unavailableReason;
                 badge = badgeText;
             }
-            var option = Ui.RadioOption(isSelected, choice.SettingsTitle(), choice.SettingsDetail(), query, () =>
+            var title = choice == DictationEngineChoice.Parakeet ? ParakeetDictation.SelectedModel.Info.Name : choice.SettingsTitle();
+            var option = Ui.RadioOption(isSelected, title, choice.SettingsDetail(), query, () =>
             {
                 Settings.Engine = choice;
             }, Ui.Tag(choice.AudioDestinationTag(), choice.IsOnDevice()), badge);
             var stack = new StackPanel();
             stack.Children.Add(option);
-            if (choice == DictationEngineChoice.Parakeet && (isSelected || parakeet.State.IsBusy || parakeet.State.Kind == ModelDownloadState.Stage.Installed))
+            if (choice == DictationEngineChoice.Parakeet && isSelected)
             {
-                var downloadRow = ModelDownloadRow(parakeet, ParakeetCaption);
-                downloadRow.Margin = new Thickness(30, 10, 0, 0);
-                stack.Children.Add(downloadRow);
-                if (isSelected && unavailableReason == DictationEngineResolver.ParakeetLanguageNotHeardReason)
-                    stack.Children.Add(Ui.Text(unavailableReason, SettingsLook.CaptionSize, SettingsLook.Danger));
+                stack.Children.Add(Ui.Row("Modèles locaux", unavailableReason ?? "Choisissez le modèle partagé avec l’assistant.", "",
+                    Ui.Button("Gérer", () => actions.ShowSettings(DictationSettingsPage.Recognition))));
             }
             if (isSelected && unavailableReason is not null && choice != DictationEngineChoice.Parakeet)
             {
@@ -137,49 +136,7 @@ internal sealed partial class SettingsRowFactory
                 stack.Children.Add(fixRow);
             }
             return Ui.Card(stack);
-        }, Changes.Of(Settings, nameof(DictationSettings.Engine), nameof(DictationSettings.LanguageCode)), Changes.Shell, Changes.Of(parakeet));
-    }
-
-    private static string ParakeetCaption(ModelDownloadState state) => state.Kind switch
-    {
-        ModelDownloadState.Stage.NotInstalled => "Téléchargez le modèle pour transcrire en français sur ce PC.",
-        ModelDownloadState.Stage.Downloading => $"Téléchargement · {(int)Math.Round(state.Fraction * 100)} %",
-        ModelDownloadState.Stage.Unpacking => "Vérification et extraction du modèle…",
-        ModelDownloadState.Stage.Failed => state.Message ?? "Le téléchargement a échoué.",
-        _ => "Modèle téléchargé. La reconnaissance s’exécute sur le processeur.",
-    };
-
-    /// <summary>A model's download under its option: download (progress, cancel, retry), or remove it.</summary>
-    private static DockPanel ModelDownloadRow(IModelDownload model, Func<ModelDownloadState, string> caption)
-    {
-        var state = model.State;
-        var row = new DockPanel { LastChildFill = true };
-        var controls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
-        switch (state.Kind)
-        {
-            case ModelDownloadState.Stage.NotInstalled:
-                controls.Children.Add(Ui.Button($"Download {model.DownloadSizeText}", model.Download));
-                break;
-            case ModelDownloadState.Stage.Downloading:
-                controls.Children.Add(new ProgressBar { Width = 110, Value = state.Fraction, Maximum = 1, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
-                controls.Children.Add(Ui.Button("Cancel", model.CancelDownload));
-                break;
-            case ModelDownloadState.Stage.Unpacking:
-                controls.Children.Add(new WpfUi.ProgressRing { IsIndeterminate = true, Width = 18, Height = 18 });
-                break;
-            case ModelDownloadState.Stage.Failed:
-                controls.Children.Add(Ui.Button("Try Again", model.Download));
-                break;
-            default:
-                controls.Children.Add(Ui.Button("Remove", model.Remove));
-                break;
-        }
-        DockPanel.SetDock(controls, Dock.Right);
-        row.Children.Add(controls);
-        var text = Ui.Text(caption(state), SettingsLook.CaptionSize, state.Kind == ModelDownloadState.Stage.Failed ? SettingsLook.Danger : SettingsLook.TextSecondary);
-        text.VerticalAlignment = VerticalAlignment.Center;
-        row.Children.Add(text);
-        return row;
+        }, [Changes.Of(Settings, nameof(DictationSettings.Engine), nameof(DictationSettings.LanguageCode)), Changes.Shell, .. models]);
     }
 
     // MARK: - language
@@ -240,14 +197,16 @@ internal sealed partial class SettingsRowFactory
         private readonly SettingsItem item;
         private readonly string query;
         private readonly MainWindowServices services;
+        private readonly bool transcriptionOnly;
         private readonly ProgressBar meter = new() { Minimum = 0, Maximum = 1, Width = 80, Height = 8 };
         private CancellationTokenSource? currentTest;
 
-        public VoiceDiagnosticsRow(SettingsItem item, string query, MainWindowServices services)
+        public VoiceDiagnosticsRow(SettingsItem item, string query, MainWindowServices services, bool transcriptionOnly = false)
         {
             this.item = item;
             this.query = query;
             this.services = services;
+            this.transcriptionOnly = transcriptionOnly;
             HorizontalContentAlignment = HorizontalAlignment.Stretch;
             Render(item.Detail);
             Unloaded += (_, _) => Cancel();
@@ -257,8 +216,8 @@ internal sealed partial class SettingsRowFactory
         private void Render(string message, bool failed = false)
         {
             var controls = currentTest is null
-                ? Ui.HStack(8, Ui.Button("Microphone", () => _ = RunAsync(transcribe: false)),
-                    Ui.Button("Transcription", () => _ = RunAsync(transcribe: true)))
+                ? Ui.HStack(8, transcriptionOnly ? null : Ui.Button("Microphone", () => _ = RunAsync(transcribe: false)),
+                    Ui.Button(transcriptionOnly ? "Enregistrer" : "Transcription", () => _ = RunAsync(transcribe: true)))
                 : Ui.HStack(8, Ui.Button("Annuler", Cancel));
             if (meter.Parent is Panel previousPanel) previousPanel.Children.Remove(meter);
             var stack = new StackPanel();
@@ -270,6 +229,11 @@ internal sealed partial class SettingsRowFactory
         private async Task RunAsync(bool transcribe)
         {
             if (currentTest is not null) return;
+            if (transcriptionOnly && !services.Settings.Engine.KeepsVoiceOnThisPC())
+            {
+                Render("Sélectionnez un modèle local ci-dessus pour enregistrer et transcrire sur ce PC.", failed: true);
+                return;
+            }
             if (services.IsVoiceInputBusy())
             {
                 Render("Terminez l’activité vocale ou désactivez le mode mains libres avant le test.", failed: true);
