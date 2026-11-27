@@ -337,8 +337,14 @@ internal static class SmokeCommands
                     throw new InvalidOperationException("The French recording did not produce the expected accented words.");
             }
 
-            VerifyUnicodeClipboard();
-            report.WriteLine("Win32 Unicode clipboard and conditional restore: passed.");
+            // The hosted runner is disposable. Its initial clipboard can contain formats that
+            // cannot be snapshotted (for example remote desktop formats), so use only test content.
+            if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true"
+                && Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") == "github-hosted")
+            {
+                VerifyUnicodeClipboard();
+                report.WriteLine("Win32 Unicode clipboard and conditional restore: passed.");
+            }
             return 0;
         }
         catch (Exception error)
@@ -366,26 +372,18 @@ internal static class SmokeCommands
     private static void VerifyUnicodeClipboard()
     {
         using var clipboard = new Win32Clipboard();
-        var original = clipboard.Snapshot();
         const string previous = "Presse-papiers synthétique";
         const string dictated = "À bientôt, chère amie !";
-        if (!original.CanRestore) throw new InvalidOperationException("The original clipboard could not be captured.");
-        try
-        {
-            if (!clipboard.SetText(previous)) throw new InvalidOperationException("Could not seed the Win32 clipboard.");
-            var snapshot = clipboard.Snapshot();
-            if (!clipboard.SetText(dictated, excludeFromHistory: true) || clipboard.GetText() != dictated)
-                throw new InvalidOperationException("The Unicode clipboard round-trip failed.");
-            var pasteSequence = clipboard.SequenceNumber;
-            if (!clipboard.RestoreIfUnchanged(snapshot, pasteSequence) || clipboard.GetText() != previous)
-                throw new InvalidOperationException("Could not restore the previous clipboard.");
-            if (clipboard.RestoreIfUnchanged(snapshot, pasteSequence))
-                throw new InvalidOperationException("The clipboard was overwritten after its sequence changed.");
-        }
-        finally
-        {
-            clipboard.Restore(original);
-        }
+        if (!clipboard.SetText(previous)) throw new InvalidOperationException("Could not seed the Win32 clipboard.");
+        var snapshot = clipboard.Snapshot();
+        if (!snapshot.CanRestore) throw new InvalidOperationException("Could not snapshot the seeded Win32 clipboard.");
+        if (!clipboard.SetText(dictated, excludeFromHistory: true) || clipboard.GetText() != dictated)
+            throw new InvalidOperationException("The Unicode clipboard round-trip failed.");
+        var pasteSequence = clipboard.SequenceNumber;
+        if (!clipboard.RestoreIfUnchanged(snapshot, pasteSequence) || clipboard.GetText() != previous)
+            throw new InvalidOperationException("Could not restore the previous clipboard.");
+        if (clipboard.RestoreIfUnchanged(snapshot, pasteSequence))
+            throw new InvalidOperationException("The clipboard was overwritten after its sequence changed.");
     }
 
     private static async Task<int> VoiceSmokeAsync(string voiceName, bool play)
