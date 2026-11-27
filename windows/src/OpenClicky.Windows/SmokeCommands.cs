@@ -42,6 +42,10 @@ internal static class SmokeCommands
             return index >= 0 && index + offset < args.Length ? args[index + offset] : null;
         }
 
+        if (Argument("--pley-smoke-clipboard") is { } clipboardReport)
+        {
+            return ClipboardSmoke(clipboardReport);
+        }
         if (Argument("--pley-smoke-voice-fr") is { } voiceReport)
         {
             return Task.Run(() => FrenchVoiceSmokeAsync(voiceReport)).GetAwaiter().GetResult();
@@ -337,14 +341,6 @@ internal static class SmokeCommands
                     throw new InvalidOperationException("The French recording did not produce the expected accented words.");
             }
 
-            // The hosted runner is disposable. Its initial clipboard can contain formats that
-            // cannot be snapshotted (for example remote desktop formats), so use only test content.
-            if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true"
-                && Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") == "github-hosted")
-            {
-                VerifyUnicodeClipboard();
-                report.WriteLine("Win32 Unicode clipboard and conditional restore: passed.");
-            }
             return 0;
         }
         catch (Exception error)
@@ -369,14 +365,35 @@ internal static class SmokeCommands
         }
     }
 
-    private static void VerifyUnicodeClipboard()
+    private static int ClipboardSmoke(string reportPath)
+    {
+        if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true"
+            || Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") != "github-hosted") return 2;
+        using var report = new StreamWriter(reportPath) { AutoFlush = true };
+        try
+        {
+            VerifyUnicodeClipboard(report);
+            report.WriteLine("Win32 Unicode clipboard and conditional restore: passed.");
+            return 0;
+        }
+        catch (Exception error)
+        {
+            report.WriteLine($"Win32 clipboard check failed: {error.Message}");
+            return 1;
+        }
+    }
+
+    private static void VerifyUnicodeClipboard(TextWriter report)
     {
         using var clipboard = new Win32Clipboard();
         const string previous = "Presse-papiers synthétique";
         const string dictated = "À bientôt, chère amie !";
         if (!clipboard.SetText(previous)) throw new InvalidOperationException("Could not seed the Win32 clipboard.");
+        if (clipboard.GetText() != previous) throw new InvalidOperationException("Could not read the seeded Win32 Unicode text.");
+        report.WriteLine("Seeded Win32 Unicode text was read back.");
         var snapshot = clipboard.Snapshot();
-        if (!snapshot.CanRestore) throw new InvalidOperationException("Could not snapshot the seeded Win32 clipboard.");
+        if (!snapshot.CanRestore || snapshot.IsEmpty)
+            throw new InvalidOperationException("Could not snapshot the seeded Win32 clipboard.");
         if (!clipboard.SetText(dictated, excludeFromHistory: true) || clipboard.GetText() != dictated)
             throw new InvalidOperationException("The Unicode clipboard round-trip failed.");
         var pasteSequence = clipboard.SequenceNumber;

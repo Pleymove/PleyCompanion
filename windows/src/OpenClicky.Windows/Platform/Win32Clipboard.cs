@@ -23,7 +23,7 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
 
     private readonly object ownerLock = new();
     private readonly Lazy<MessageLoopThread> clipboardOwner =
-        new(() => new MessageLoopThread("PleyCompanion clipboard owner", (_, _, _, _) => null));
+        new(() => new MessageLoopThread("PleyCompanion clipboard owner", (_, _, _, _) => null, messageOnlyWindow: false));
     private bool disposed;
 
     public uint SequenceNumber => GetClipboardSequenceNumber();

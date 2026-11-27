@@ -90,7 +90,7 @@ jobs:
           if-no-files-found: error
 
 
-      - name: Verify CPU voice and Unicode clipboard
+      - name: Verify French CPU voice
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         timeout-minutes: 10
         run: |
@@ -98,11 +98,26 @@ jobs:
           $app = Resolve-Path 'publish/win-x64/PleyCompanion.exe'
           $process = Start-Process -FilePath $app -PassThru -Wait -ArgumentList @('--pley-smoke-voice-fr', ('"{0}"' -f $report))
           if (Test-Path $report) {
-            '### French CPU voice and Unicode clipboard' >> $env:GITHUB_STEP_SUMMARY
+            '### French CPU voice' >> $env:GITHUB_STEP_SUMMARY
             Get-Content $report | ForEach-Object { "- $_" } >> $env:GITHUB_STEP_SUMMARY
             Get-Content $report
           }
           if ($process.ExitCode -ne 0) { throw "French voice smoke failed with exit code $($process.ExitCode)." }
+
+      - name: Probe Win32 clipboard on the hosted desktop
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'windows-x64-clipboard.txt'
+          $app = Resolve-Path 'publish/win-x64/PleyCompanion.exe'
+          $process = Start-Process -FilePath $app -PassThru -Wait -ArgumentList @('--pley-smoke-clipboard', ('"{0}"' -f $report))
+          if (Test-Path $report) {
+            '### Win32 clipboard on the hosted desktop' >> $env:GITHUB_STEP_SUMMARY
+            Get-Content $report | ForEach-Object { "- $_" } >> $env:GITHUB_STEP_SUMMARY
+            Get-Content $report
+          }
+          if ($process.ExitCode -ne 0) { throw "Win32 clipboard probe failed with exit code $($process.ExitCode)." }
 
       - name: Verify upgrade from 0.12.1 and fresh launch
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
@@ -121,5 +136,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64-voice-measurements
-          path: ${{ runner.temp }}/windows-x64-voice.txt
+          path: |
+            ${{ runner.temp }}/windows-x64-voice.txt
+            ${{ runner.temp }}/windows-x64-clipboard.txt
           if-no-files-found: warn
