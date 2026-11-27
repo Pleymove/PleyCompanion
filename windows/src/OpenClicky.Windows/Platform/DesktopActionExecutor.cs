@@ -119,6 +119,11 @@ public sealed partial class DesktopActionExecutor : IDesktopActionExecutor
 
     // ------------------------------------------------------------------ app lookup
 
+    internal static IReadOnlyList<DesktopAppTarget> InstalledApplications() =>
+        StartMenuShortcuts().Concat(PackagedApps())
+            .DistinctBy(app => app.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(app => app.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToArray();
+
     private static IEnumerable<DesktopAppTarget> StartMenuShortcuts()
     {
         var roots = new[]
@@ -181,8 +186,7 @@ public sealed partial class DesktopActionExecutor : IDesktopActionExecutor
         { IsBackground = true, Name = "OpenClicky apps folder" };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        thread.Join(TimeSpan.FromSeconds(3));
-        return apps;
+        return thread.Join(TimeSpan.FromSeconds(3)) ? apps : [];
     }
 
     /// <summary>Exact name, then letters-and-digits-only equal, then a name starting with it, then a name holding all its words; shortest wins.</summary>
