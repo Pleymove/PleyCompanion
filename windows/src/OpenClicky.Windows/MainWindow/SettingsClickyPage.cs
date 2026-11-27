@@ -149,6 +149,32 @@ internal sealed partial class SettingsRowFactory
                             ShellSettingsRevision.NoteChanged();
                         }, 150)));
                 }, Changes.Shell, Changes.Of(Settings, nameof(Core.Dictation.DictationSettings.Region)));
+            case "clicky.transcriptionProvider":
+                return new LiveContent(() =>
+                {
+                    var current = BuddyTranscriptionProviderFactory.ParsePreferredProvider(OpenClickyConfiguration.Settings.TranscriptionProvider);
+                    var selected = current switch
+                    {
+                        BuddyTranscriptionProviderFactory.PreferredProvider.Parakeet => "parakeet",
+                        BuddyTranscriptionProviderFactory.PreferredProvider.OfflineSpeech => "offline",
+                        BuddyTranscriptionProviderFactory.PreferredProvider.OpenAI => "openai",
+                        BuddyTranscriptionProviderFactory.PreferredProvider.AssemblyAI => "assemblyai",
+                        _ => "auto",
+                    };
+                    var picker = Ui.Picker(new[]
+                    {
+                        ("auto", "Automatique"), ("parakeet", "Parakeet (local)"),
+                        ("offline", "Moteurs du PC"), ("openai", "OpenAI (en ligne)"), ("assemblyai", "AssemblyAI (en ligne)"),
+                    }, selected, choice =>
+                    {
+                        OpenClickyConfiguration.Update(shell => shell.TranscriptionProvider = choice == "auto" ? null : choice);
+                        ShellSettingsRevision.NoteChanged();
+                    }, 170);
+                    UIElement controls = selected == "parakeet" && !ParakeetDictation.IsInstalled
+                        ? Ui.HStack(8, picker, Ui.Button("Télécharger…", () => actions.ShowSettings(DictationSettingsPage.Dictation)))
+                        : picker;
+                    return Ui.Card(Ui.Row(item.Title, item.Detail, query, controls));
+                }, Changes.Shell, Changes.Of(services.Services.Parakeet));
             case "clicky.speechVoice":
                 return new LiveContent(() => SpeechVoiceRows(item, query), Changes.Shell, Changes.Of(Settings, nameof(Core.Dictation.DictationSettings.Region)),
                     Changes.Of(services.Services.Kokoro));
@@ -270,15 +296,8 @@ internal sealed partial class SettingsRowFactory
                         : null,
                     Ui.Button("Preview", () => _ = services.Services.PreviewVoiceAsync("kokoro")));
                 yield return Ui.Card(Ui.Row("Kokoro voice", "The first answer after launch takes a few seconds while the model loads.", "", speakerControls));
-                yield return Ui.Card(Ui.Row("Kokoro download", "About 400 MB in %LOCALAPPDATA%\\OpenClicky.", "", Ui.Button("Remove", () =>
-                {
-                    kokoro.Remove();
-                    if (OpenClickyConfiguration.Settings.SpeechVoice == "kokoro")
-                    {
-                        OpenClickyConfiguration.Update(shell => shell.SpeechVoice = null);
-                        ShellSettingsRevision.NoteChanged();
-                    }
-                })));
+                yield return Ui.Card(Ui.Row("Kokoro download", @"%LOCALAPPDATA%\PleyCompanion\Models\Kokoro", "",
+                    Ui.Button("Remove", kokoro.Remove)));
                 break;
         }
     }
@@ -314,7 +333,7 @@ internal sealed partial class SettingsRowFactory
     {
         try
         {
-            var wav = await services.SystemVoice.RenderWavAsync("hi, i'm clicky. this is how i sound.", ReplyLanguage.CurrentCode, voiceId);
+            var wav = await services.SystemVoice.RenderWavAsync(ReplyLanguage.PreviewSentence(ReplyLanguage.CurrentCode), ReplyLanguage.CurrentCode, voiceId);
             await services.AudioPlayer.PlayToCompletionAsync(wav);
         }
         catch (Exception error)

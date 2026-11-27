@@ -16,17 +16,9 @@ public class ParakeetDictationTests
         Assert.True(ParakeetDictation.Hears(null));
         Assert.True(ParakeetDictation.Hears("en"));
         Assert.True(ParakeetDictation.Hears("de"));
+        Assert.True(ParakeetDictation.Hears("fr"));
         Assert.False(ParakeetDictation.Hears("hi"));
         Assert.False(ParakeetDictation.Hears("ml"));
-    }
-
-    [Fact]
-    public void AnAutomaticDownloadReplacesOnlyTheOldOfflineEngine()
-    {
-        Assert.Equal("parakeet", ParakeetDictation.EngineAfterAutomaticDownload("offline"));
-        Assert.Equal("parakeet", ParakeetDictation.EngineAfterAutomaticDownload("moonshine"));
-        Assert.Equal("sarvam", ParakeetDictation.EngineAfterAutomaticDownload("sarvam"));
-        Assert.Equal("openclicky", ParakeetDictation.EngineAfterAutomaticDownload("openclicky"));
     }
 
     [Fact]
@@ -40,12 +32,12 @@ public class ParakeetDictationTests
     }
 
     [Fact]
-    public void TheModelIsPinnedAsOnTheMac()
+    public void TheWindowsModelMatchesItsPublishedAsset()
     {
         Assert.Equal("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
             ParakeetDictation.ModelDownload.Url.ToString());
-        Assert.Equal("5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf", ParakeetDictation.ModelDownload.Sha256);
-        Assert.Equal(487_170_055, ParakeetDictation.ModelDownload.Bytes);
+        Assert.Equal("1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9", ParakeetDictation.ModelDownload.Sha256);
+        Assert.Equal(487_211_443, ParakeetDictation.ModelDownload.Bytes);
     }
 
     [Fact]

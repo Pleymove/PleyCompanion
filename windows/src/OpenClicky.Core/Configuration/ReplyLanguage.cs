@@ -73,6 +73,7 @@ public static class ReplyLanguage
     /// <summary>The line a voice preview says, in the language it will speak.</summary>
     public static string PreviewSentence(string code) => code switch
     {
+        "fr" => "Bonjour, je suis votre compagnon. Voici comment je sonne.",
         "ur" => "السلام علیکم، میں کلکی ہوں۔ میری آواز ایسی ہے۔",
         _ => "hi, i'm clicky. this is how i sound.",
     };

@@ -1,8 +1,5 @@
-// Moonshine: the dictation engine that ships inside the app, so a fresh install dictates offline at
-// once, with no download and without Windows' "online speech recognition" switch. Useful Sensors'
-// Moonshine tiny (English, int8) through the same sherpa-onnx helper as Parakeet, under its own flag;
-// the request and reply are Parakeet's (16 kHz PCM16 in, words out). Parakeet still downloads on its
-// own after the tour and takes over (ParakeetDictation.EngineAfterAutomaticDownload).
+// Moonshine Tiny EN ships with the app for English dictation without an extra download. It uses
+// sherpa-onnx and shares Parakeet's 16 kHz PCM16 protocol. French uses the downloadable Parakeet model.
 //
 // Source: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2
 // (pinned with its SHA-256 in windows/scripts/fetch-speech-model.ps1).

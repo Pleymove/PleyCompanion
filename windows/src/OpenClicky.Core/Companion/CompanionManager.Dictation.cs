@@ -37,13 +37,14 @@ public sealed partial class CompanionManager
         dictationTakeController = controller;
         controller.SpaceStore.StartWatching();
         services.Shortcuts.DictationKey = DictationSettings.DictationKey;
-        UpdateRightAltAdoption();
         DictationSettings.PropertyChanged += OnDictationSettingsChanged;
         Orb.Clicked += controller.OrbClicked;
         Orb.Hint = controller.IdleHint;
 
         controller.BeforeMicrophoneOpens = async () =>
         {
+            if (VoiceState == CompanionVoiceState.Responding) StopSpeaking();
+            else if (IsAskInFlight) StopAskLane("dictation");
             IsDictatingToFrontApp = true;
             // The Realtime engine's input must be gone first, or the dictation engine records silence.
             // Only when a session is open: releasing an idle engine would just delay the first words.
@@ -78,6 +79,12 @@ public sealed partial class CompanionManager
         ApplyPreferredMicrophone(DictationSettings.PreferredMicrophoneUID);
         Island.DictationEngineName = controller.EngineDisplayName;
         RefreshEngineWarning();
+        if (ParakeetDictation.Shared is { } parakeet) parakeet.PropertyChanged += OnParakeetStateChanged;
+    }
+
+    private void OnParakeetStateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName == nameof(ParakeetDictation.State)) RefreshEngineWarning();
     }
 
     private void ApplyPreferredMicrophone(string? microphoneId)
@@ -90,7 +97,6 @@ public sealed partial class CompanionManager
     private void OnDictationSettingsChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs eventArgs) => services.MainThread.Post(() =>
     {
         services.Shortcuts.DictationKey = DictationSettings.DictationKey;
-        UpdateRightAltAdoption();
         Island.DictationKey = DictationSettings.DictationKey;
         if (dictationTakeController is { } controller)
         {
@@ -113,6 +119,7 @@ public sealed partial class CompanionManager
     private void StopDictation()
     {
         DictationSettings.PropertyChanged -= OnDictationSettingsChanged;
+        if (ParakeetDictation.Shared is { } parakeet) parakeet.PropertyChanged -= OnParakeetStateChanged;
         if (dictationTakeController is { } controller)
         {
             if (controller.IsTakeInProgress) controller.CancelTake("cancelled");

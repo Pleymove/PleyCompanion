@@ -9,17 +9,6 @@ namespace OpenClicky.Core.Tests.Speech;
 public class KokoroVoiceTests
 {
     [Fact]
-    public void AnAutomaticDownloadMakesKokoroTheVoiceOnlyWhereNobodyPickedOne()
-    {
-        Assert.Equal("kokoro", KokoroVoice.VoiceAfterAutomaticDownload(null, "en"));
-        Assert.Equal("kokoro", KokoroVoice.VoiceAfterAutomaticDownload("cloud", "en"));
-        Assert.Equal("kokoro", KokoroVoice.VoiceAfterAutomaticDownload("automatic", "en"));
-        Assert.Equal("openai", KokoroVoice.VoiceAfterAutomaticDownload("openai", "en"));
-        Assert.Equal("mac", KokoroVoice.VoiceAfterAutomaticDownload("mac", "en"));
-        Assert.Null(KokoroVoice.VoiceAfterAutomaticDownload(null, "ta"));
-    }
-
-    [Fact]
     public void KokoroSpeaksTheReplyLanguageWithThePickedSpeakerWhenItFits()
     {
         Assert.Equal("Heart", KokoroVoice.SpeakerFor("en", null)?.Name);
@@ -30,6 +19,8 @@ public class KokoroVoiceTests
         Assert.Equal("en-us", KokoroVoice.LanguageHint("en"));
         Assert.Equal("pt-br", KokoroVoice.LanguageHint("pt"));
         Assert.Equal("fr", KokoroVoice.LanguageHint("fr"));
+        Assert.Equal(30, KokoroVoice.SpeakerFor("fr", null)?.Id);
+        Assert.Equal("Siwis", KokoroVoice.SpeakerFor("fr", 26)?.Name);
     }
 
     [Fact]

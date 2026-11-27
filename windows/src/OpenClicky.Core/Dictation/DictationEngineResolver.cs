@@ -85,7 +85,7 @@ public static class DictationEngineResolver
     public static string? ParakeetUnavailableReason(bool isInstalled, string? bareLanguageCode)
     {
         if (!ParakeetFacts.Hears(bareLanguageCode)) return ParakeetLanguageNotHeardReason;
-        return isInstalled ? null : $"needs its {ParakeetFacts.DownloadSizeText} download";
+        return isInstalled ? null : $"Téléchargez Parakeet ({ParakeetFacts.DownloadSizeText}) dans les paramètres de dictée.";
     }
 
     /// <summary>Installed but pinned to a language Parakeet does not hear: the island says this, not "download".</summary>

@@ -27,6 +27,14 @@ public sealed class TakeFormatterTests
     };
 
     [Fact]
+    public void FrenchFormattingKeepsAccentsAndUsesFrenchPunctuationOnlyAtWordBoundaries()
+    {
+        var formatting = new TakeFormattingContext { Style = DictationStyle.Seeded()[0], Language = DictationLanguage.Named("fr-FR") };
+        var result = TakeFormatter.FormatLocally("à 12:30 : café, cœur et crème. Où est la clé?", formatting);
+        Assert.Equal("À 12:30\u00A0: café, cœur et crème. Où est la clé\u202F?", result.Text);
+    }
+
+    [Fact]
     public void ATakeThatIsATriggerBecomesItsReplacement()
     {
         var shortcut = new SpokenShortcut("my sign-off", "Warm regards,\nPrasanth");

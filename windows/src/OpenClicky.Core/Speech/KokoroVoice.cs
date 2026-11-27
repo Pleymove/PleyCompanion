@@ -2,8 +2,8 @@
 //
 // Kokoro: an open 82M-parameter voice model that runs on this PC, free and offline, through
 // sherpa-onnx (the org.k2fsa.sherpa.onnx package ships the engine next to the exe); only the model
-// (350 MB) is downloaded, when Kokoro is picked in Settings or on its own once the welcome tour is
-// done, checked against a pinned SHA-256 and unpacked into %LOCALAPPDATA%\OpenClicky\Models.
+// (350 MB) is downloaded from Settings, checked against a pinned SHA-256 and unpacked into
+// %LOCALAPPDATA%\PleyCompanion\Models.
 //
 // The loaded model takes about 400 MB of memory, so it lives in a helper process (OpenClicky.exe
 // --openclicky-kokoro-helper, SherpaHelperMain) that runs only around a conversation:
@@ -53,16 +53,11 @@ public sealed partial class KokoroVoice : ObservableObject
     /// <summary>How long the model stays in memory after the last answer it spoke.</summary>
     public const int IdleUnloadSeconds = 180;
 
-    /// <summary>Set when the person removed Kokoro or cancelled its download: it is never fetched again on
-    /// its own (picking it in Settings clears this).</summary>
-    public const string DeclinedKey = "openclicky.kokoro.declined";
-
     private readonly SherpaHelperClient engine;
     private readonly IProcessRunner processRunner;
-    private readonly INetworkReachability network;
-    private readonly Preferences preferences;
     private readonly IMainThread? mainThread;
     private CancellationTokenSource? downloadCancellation;
+    private int warming;
     private CancellationTokenSource? idleUnloadCancellation;
     private readonly object taskLock = new();
 
@@ -75,11 +70,9 @@ public sealed partial class KokoroVoice : ObservableObject
     /// <summary>The speaker picked in Settings (shell.json `kokoroSpeaker`).</summary>
     public Func<int?> PickedSpeaker { get; set; } = () => OpenClickyConfiguration.Settings.KokoroSpeaker;
 
-    public KokoroVoice(IProcessRunner processRunner, INetworkReachability network, Preferences preferences, string helperExecutablePath, IMainThread? mainThread = null)
+    public KokoroVoice(IProcessRunner processRunner, string helperExecutablePath, IMainThread? mainThread = null)
     {
         this.processRunner = processRunner;
-        this.network = network;
-        this.preferences = preferences;
         this.mainThread = mainThread;
         engine = new SherpaHelperClient(HelperFlag, "kokoro", processRunner, helperExecutablePath);
         state = IsInstalled ? ModelInstallState.Installed : ModelInstallState.NotInstalled;
@@ -172,63 +165,23 @@ public sealed partial class KokoroVoice : ObservableObject
     /// <summary>Loads the model and speaks one throwaway word, so the first real answer starts at once.</summary>
     public void WarmUpIfSpeaking()
     {
-        if (!IsInstalled || !IsCurrentVoice()) return;
+        if (!IsInstalled || !IsCurrentVoice() || engine.IsRunning || Interlocked.Exchange(ref warming, 1) != 0) return;
         _ = Task.Run(async () =>
         {
             var startedAt = DateTime.UtcNow;
             try { await AudioAsync("ok").ConfigureAwait(false); }
             catch (Exception) { return; }
+            finally { Interlocked.Exchange(ref warming, 0); }
             AppLog.Write($"kokoro: warmed up in {(DateTime.UtcNow - startedAt).TotalSeconds:0.0} s");
         });
-    }
-
-    // MARK: Automatic setup
-
-    /// <summary>
-    /// At launch and when the welcome tour ends: once setup is done, Kokoro downloads in the
-    /// background, and when it is ready it becomes the voice (if the voice was left on Automatic),
-    /// so answers stop spending the free ElevenLabs characters. Nothing is loaded here: that waits
-    /// for the first question (<see cref="PrepareForAnswer"/>).
-    /// </summary>
-    public void StartAutomaticSetup(bool tourIsFinished)
-    {
-        if (IsInstalled) return;
-        bool downloading;
-        lock (taskLock) downloading = downloadCancellation is not null;
-        if (!tourIsFinished || downloading
-            || preferences.GetBool(DeclinedKey)
-            || SpeakerFor(ReplyLanguage.CurrentCode, null) is null
-            || ModelDownload.FreeSpace() < ModelDownload.AutomaticDownloadFreeSpace) return;
-        // Not on a phone hotspot or a metered connection: it tries again next launch.
-        if (ModelDownload.NetworkIsExpensiveOrConstrained(network))
-        {
-            AppLog.Write("kokoro: automatic download waits for an unmetered network");
-            return;
-        }
-        AppLog.Write("kokoro: automatic download started");
-        Download(isAutomatic: true);
-    }
-
-    /// <summary>The raw values SpeechVoiceChoice knows; anything else (nil, "auto", the older "cloud") is Automatic.</summary>
-    private static readonly HashSet<string> KnownVoiceRawValues =
-        ["automatic", "account", "openai", "elevenlabs", "google", "gemini", "polly", "sarvam", "kokoro", "mac"];
-
-    /// <summary>The decision once an automatic download finishes: Kokoro takes over from Automatic; a voice
-    /// the person picked themselves is left alone.</summary>
-    public static string? VoiceAfterAutomaticDownload(string? stored, string languageCode)
-    {
-        var isAutomatic = stored is null || stored == "automatic" || !KnownVoiceRawValues.Contains(stored);
-        if (!isAutomatic || SpeakerFor(languageCode, null) is null) return stored;
-        return "kokoro";
     }
 
     // MARK: Download
 
     /// <summary>Downloads, checks and unpacks Kokoro; does nothing while a download runs or once installed.
-    /// Picking Kokoro in Settings calls this; so does the automatic setup.</summary>
-    public void Download(bool isAutomatic = false)
+    /// Called from the voice settings.</summary>
+    public void Download()
     {
-        if (!isAutomatic) preferences.Set(DeclinedKey, false);
         CancellationTokenSource cancellation;
         lock (taskLock)
         {
@@ -254,16 +207,6 @@ public sealed partial class KokoroVoice : ObservableObject
                 if (!IsInstalled) throw ModelDownloadException.UnpackFailed("the files weren't where they should be");
                 AppLog.Write("kokoro: installed");
                 SetState(ModelInstallState.Installed);
-                if (isAutomatic)
-                {
-                    var settings = OpenClickyConfiguration.Settings;
-                    var voice = VoiceAfterAutomaticDownload(settings.SpeechVoice, ReplyLanguage.CurrentCode);
-                    if (voice != settings.SpeechVoice)
-                    {
-                        OpenClickyConfiguration.Update(changed => changed.SpeechVoice = voice);
-                        AppLog.Write("kokoro: now the voice");
-                    }
-                }
             }
             catch (OperationCanceledException)
             {
@@ -285,17 +228,14 @@ public sealed partial class KokoroVoice : ObservableObject
         });
     }
 
-    /// <summary>A cancelled download is a no: it isn't started again on its own.</summary>
     public void CancelDownload()
     {
-        preferences.Set(DeclinedKey, true);
         lock (taskLock) downloadCancellation?.Cancel();
     }
 
     /// <summary>Deletes the download and unloads the model.</summary>
     public async Task RemoveAsync()
     {
-        preferences.Set(DeclinedKey, true);
         lock (taskLock) downloadCancellation?.Cancel();
         await engine.UnloadAsync().ConfigureAwait(false);
         try { if (Directory.Exists(Folder)) Directory.Delete(Folder, recursive: true); }

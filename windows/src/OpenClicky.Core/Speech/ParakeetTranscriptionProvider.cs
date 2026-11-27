@@ -37,8 +37,8 @@ public sealed class ParakeetTranscriptionProvider : IBuddyTranscriptionProvider
         Action<Exception> onError,
         CancellationToken cancellationToken = default)
     {
-        if (!ParakeetDictation.IsInstalled || dictation() is not { } parakeet)
-            throw new ParakeetException(ParakeetException.NotInstalledMessage);
+        if (UnavailableExplanation is { } explanation) throw new TranscriptionProviderException(explanation);
+        if (dictation() is not { } parakeet) throw new ParakeetException(ParakeetException.NotInstalledMessage);
         parakeet.PrepareForTake();
         IBuddyStreamingTranscriptionSession session = new ParakeetTranscriptionSession(
             onTranscriptUpdate, onFinalTranscriptReady, onError, parakeet.TranscribeAsync);
@@ -190,7 +190,7 @@ public sealed class ParakeetTranscriptionSession : IBuddyStreamingTranscriptionS
         string text;
         try
         {
-            text = await transcribe(audioSoFar, cancellationToken).ConfigureAwait(false);
+            text = await transcribe(audioSoFar, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception)
         {

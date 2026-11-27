@@ -10,7 +10,7 @@ namespace OpenClicky.Windows.Platform;
 /// is retried for ~250 ms because another app (often a clipboard manager reacting to the last
 /// change) may hold it open.
 /// </summary>
-public sealed class Win32Clipboard : IClipboard
+public sealed class Win32Clipboard : IClipboard, IDisposable
 {
     /// <summary>Stops a snapshot from copying absurd amounts (a copied 4K bitmap is ~33 MB of DIB).</summary>
     private const long MaximumSnapshotBytes = 128L * 1024 * 1024;
@@ -22,6 +22,8 @@ public sealed class Win32Clipboard : IClipboard
     ];
 
     private static readonly object ClipboardLock = new();
+    private readonly Lazy<MessageLoopThread> clipboardOwner =
+        new(() => new MessageLoopThread("PleyCompanion clipboard owner", (_, _, _, _) => null));
 
     public uint SequenceNumber => GetClipboardSequenceNumber();
 
@@ -56,7 +58,7 @@ public sealed class Win32Clipboard : IClipboard
     {
         lock (ClipboardLock)
         {
-            if (!Open()) return false;
+            if (!OpenForWriting()) return false;
             try
             {
                 if (!EmptyClipboard()) return false;
@@ -82,7 +84,7 @@ public sealed class Win32Clipboard : IClipboard
     {
         lock (ClipboardLock)
         {
-            if (!Open()) return ClipboardSnapshot.Empty;
+            if (!Open()) return ClipboardSnapshot.Unavailable;
             try
             {
                 var formats = new List<ClipboardFormatData>();
@@ -109,7 +111,9 @@ public sealed class Win32Clipboard : IClipboard
                         GlobalUnlock(handle);
                     }
                 }
-                return new ClipboardSnapshot(formats);
+                return formats.Count == 0 && CountClipboardFormats() > 0
+                    ? ClipboardSnapshot.Unavailable
+                    : new ClipboardSnapshot(formats);
             }
             finally
             {
@@ -118,13 +122,18 @@ public sealed class Win32Clipboard : IClipboard
         }
     }
 
-    public bool Restore(ClipboardSnapshot snapshot)
+    public bool Restore(ClipboardSnapshot snapshot) => Restore(snapshot, null);
+
+    public bool RestoreIfUnchanged(ClipboardSnapshot snapshot, uint sequenceNumber) => Restore(snapshot, sequenceNumber);
+
+    private bool Restore(ClipboardSnapshot snapshot, uint? expectedSequenceNumber)
     {
         lock (ClipboardLock)
         {
-            if (!Open()) return false;
+            if (!snapshot.CanRestore || !OpenForWriting()) return false;
             try
             {
+                if (expectedSequenceNumber is { } expected && SequenceNumber != expected) return false;
                 if (!EmptyClipboard()) return false;
                 var allWritten = true;
                 foreach (var format in snapshot.Formats)
@@ -222,11 +231,20 @@ public sealed class Win32Clipboard : IClipboard
         return true;
     }
 
-    private static bool Open()
+    // EmptyClipboard assigns ownership to the HWND passed to OpenClipboard.
+    // SetClipboardData fails when the clipboard was emptied with a null owner.
+    private bool OpenForWriting() => clipboardOwner.Value.WindowHandle is var owner && owner != 0 && Open(owner);
+
+    public void Dispose()
+    {
+        if (clipboardOwner.IsValueCreated) clipboardOwner.Value.Dispose();
+    }
+
+    private static bool Open(nint owner = default)
     {
         for (var attempt = 0; attempt < 25; attempt++)
         {
-            if (OpenClipboard(0)) return true;
+            if (OpenClipboard(owner)) return true;
             Thread.Sleep(10);
         }
         return false;

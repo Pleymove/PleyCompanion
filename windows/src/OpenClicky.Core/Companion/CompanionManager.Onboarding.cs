@@ -4,7 +4,6 @@
 //
 
 using OpenClicky.Core.Configuration;
-using OpenClicky.Core.Speech;
 
 namespace OpenClicky.Core.Companion;
 
@@ -15,20 +14,6 @@ public sealed partial class CompanionManager
     {
         FirstRunTour.NoteUse();
         HidePointerUntilShakeOnceItIsFamiliar();
-    }
-
-    /// <summary>The model that downloads on its own once the welcome tour is done: Parakeet's hearing. Kokoro waits to be
-    /// picked in Settings: account answers speak with the free ElevenLabs voice (#23).</summary>
-    public void StartAutomaticModelDownloads(bool tourIsFinished)
-    {
-        ParakeetDictation.Shared?.StartAutomaticSetup(tourIsFinished, DictationSettings);
-    }
-
-    private async Task StartAutomaticModelDownloadsSoonAsync()
-    {
-        await Task.Delay(TimeSpan.FromSeconds(8));
-        if (!isStarted) return;
-        StartAutomaticModelDownloads(FirstRunTour.IsFinished);
     }
 
     /// <summary>The microphone the dictate step names, for "listening through …".</summary>

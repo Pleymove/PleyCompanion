@@ -26,7 +26,9 @@ public sealed class FrontAppTextInserter : ITextInserter
 
     private readonly IClipboard clipboard;
     private readonly object restoreLock = new();
-    private CancellationTokenSource? pendingClipboardRestore;
+    private PendingRestore? pendingClipboardRestore;
+
+    private sealed record PendingRestore(uint Sequence, ClipboardSnapshot Original);
     private long lastInsertedAtTicks = DateTimeOffset.MinValue.UtcTicks;
 
     public FrontAppTextInserter(IClipboard clipboard)
@@ -38,10 +40,17 @@ public sealed class FrontAppTextInserter : ITextInserter
 
     public TextInsertionOutcome Insert(string text)
     {
-        var previousClipboard = clipboard.Snapshot();
+        lock (restoreLock) return InsertLocked(text);
+    }
+
+    private TextInsertionOutcome InsertLocked(string text)
+    {
+        var previousClipboard = pendingClipboardRestore is { } pending && pending.Sequence == clipboard.SequenceNumber
+            ? pending.Original : clipboard.Snapshot();
         MarkInserted();
-        CancelPendingRestore();
+        pendingClipboardRestore = null;
         if (!clipboard.SetText(text, excludeFromHistory: true)) return TextInsertionOutcome.LeftOnClipboard;
+        var pasteSequence = clipboard.SequenceNumber;
 
         if (!CanSendInputToForeground()) return TextInsertionOutcome.LeftOnClipboard;
         var inputs = new List<INPUT>();
@@ -54,9 +63,9 @@ public sealed class FrontAppTextInserter : ITextInserter
         if (Send([.. inputs]) != inputs.Count) return TextInsertionOutcome.LeftOnClipboard;
 
         // Give the front app time to read the clipboard before the person's clipboard comes back.
-        var restore = new CancellationTokenSource();
-        lock (restoreLock) pendingClipboardRestore = restore;
-        _ = RestoreLaterAsync(text, previousClipboard, restore.Token);
+        var restore = new PendingRestore(pasteSequence, previousClipboard);
+        pendingClipboardRestore = restore;
+        _ = RestoreLaterAsync(restore);
         return TextInsertionOutcome.Typed;
     }
 
@@ -88,18 +97,21 @@ public sealed class FrontAppTextInserter : ITextInserter
         inputs.Add(VirtualKeyInput(VirtualKeys.C, keyUp: true));
         if (!controlWasDown) inputs.Add(VirtualKeyInput(VirtualKeys.LeftControl, keyUp: true));
         string? copiedText = null;
+        var clipboardSequenceToRestore = sequenceBeforeCopy;
         if (Send([.. inputs]) == inputs.Count)
         {
             var deadline = DateTimeOffset.UtcNow + CopySelectionWait;
             while (DateTimeOffset.UtcNow < deadline)
             {
                 Thread.Sleep(50);
-                if (clipboard.SequenceNumber == sequenceBeforeCopy) continue;
+                var changedSequence = clipboard.SequenceNumber;
+                if (changedSequence == sequenceBeforeCopy) continue;
+                clipboardSequenceToRestore = changedSequence;
                 copiedText = clipboard.GetText();
                 break;
             }
         }
-        clipboard.Restore(previousClipboard);
+        clipboard.RestoreIfUnchanged(previousClipboard, clipboardSequenceToRestore);
         return string.IsNullOrWhiteSpace(copiedText) ? null : copiedText;
     }
 
@@ -185,28 +197,21 @@ public sealed class FrontAppTextInserter : ITextInserter
         return IsProcessElevated(processId) != true || IsProcessElevated(Environment.ProcessId) == true;
     }
 
-    private async Task RestoreLaterAsync(string pastedText, ClipboardSnapshot previousClipboard, CancellationToken cancellationToken)
+    private async Task RestoreLaterAsync(PendingRestore restore)
     {
-        try
+        await Task.Delay(ClipboardRestoreDelay).ConfigureAwait(false);
+        lock (restoreLock)
         {
-            await Task.Delay(ClipboardRestoreDelay, cancellationToken).ConfigureAwait(false);
+            if (!ReferenceEquals(pendingClipboardRestore, restore)) return;
+            pendingClipboardRestore = null;
+            clipboard.RestoreIfUnchanged(restore.Original, restore.Sequence);
         }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        if (cancellationToken.IsCancellationRequested) return;
-        // Only if the clipboard still holds the pasted words (the person may have copied something since).
-        if (clipboard.GetText() != pastedText) return;
-        // An empty snapshot empties the clipboard, as the Mac clears the pasteboard.
-        clipboard.Restore(previousClipboard);
     }
 
     private void CancelPendingRestore()
     {
         lock (restoreLock)
         {
-            pendingClipboardRestore?.Cancel();
             pendingClipboardRestore = null;
         }
     }

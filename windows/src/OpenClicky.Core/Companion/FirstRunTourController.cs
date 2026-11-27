@@ -71,21 +71,6 @@ public sealed class FirstRunTourController
 
     // MARK: - Starting
 
-    /// <summary>Called once at launch, after the island and the permission card are up.</summary>
-    public void Start()
-    {
-        if (preferences.GetBool(DoneKey)) return;
-        var storedStep = StepFromRaw(preferences.GetString(StepKey));
-        // Someone who used OpenClicky before the tour existed has been through the old welcome.
-        if (storedStep is null && (companion.DictationSettings.HasCompletedDictationOnboarding || companion.HasCompletedOnboarding))
-        {
-            preferences.Set(DoneKey, true);
-            return;
-        }
-        Observe();
-        WaitForPermissions(storedStep ?? FirstRunTourStep.Meet);
-    }
-
     /// <summary>The tray's "Replay Welcome…" and Settings → General: the whole tour again.</summary>
     public void Replay()
     {
@@ -481,8 +466,6 @@ public sealed class FirstRunTourController
         companion.DictationSettings.HasCompletedDictationOnboarding = true;
         AppLog.Write("tour: finished");
         Publish();
-        // Setup is done: the models can download in the background now.
-        companion.StartAutomaticModelDownloads(tourIsFinished: true);
     }
 
     // MARK: - The card's buttons

@@ -33,6 +33,8 @@ public sealed class MainWindowServices
     public required IMicrophoneDevices Microphones { get; init; }
     public required IMicrophonePermission MicrophonePermission { get; init; }
     public required Func<IAudioCapture> CreateAudioCapture { get; init; }
+    public required IOfflineSpeechRecognizer OfflineSpeech { get; init; }
+    public Func<bool> IsVoiceInputBusy { get; init; } = () => false;
     public required IFrontmostAppObserver FrontmostApp { get; init; }
     public required ISystemVoice SystemVoice { get; init; }
     public required IAudioPlayer AudioPlayer { get; init; }
@@ -63,6 +65,7 @@ public sealed class MainWindowServices
         Microphones = platform.Microphones,
         MicrophonePermission = platform.MicrophonePermission,
         CreateAudioCapture = platform.CreateAudioCapture,
+        OfflineSpeech = platform.OfflineSpeech,
         FrontmostApp = platform.FrontmostApp,
         SystemVoice = platform.SystemVoice,
         AudioPlayer = platform.AudioPlayer,

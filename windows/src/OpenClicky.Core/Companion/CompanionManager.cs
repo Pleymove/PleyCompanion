@@ -437,8 +437,6 @@ public sealed partial class CompanionManager : ObservableObject, ICompanionSetti
         PermissionPromptController.OpenSettings = () => ShowSettings();
         PermissionPromptController.Update(PermissionStatus);
         Island.PermissionPrompt = PermissionPromptController.CurrentPrompt;
-        // The welcome tour waits for the last permission, then takes the island.
-        FirstRunTour.Start();
         // Kokoro comes into memory only when a question starts (the ask shortcut, or a typed
         // question); hands-free answers in OpenAI's realtime voice and never needs it.
         VoiceStateChanged += state =>
@@ -447,21 +445,22 @@ public sealed partial class CompanionManager : ObservableObject, ICompanionSetti
             // A spoken answer counts as a use.
             if (state == CompanionVoiceState.Responding) NoteUse();
         };
-        // Kokoro (and Parakeet) download on their own once setup is long done; a few seconds in, so
-        // the launch itself stays quick.
-        _ = StartAutomaticModelDownloadsSoonAsync();
     }
 
     // MARK: - Start / stop
 
     /// <summary>The language push-to-talk was last set up to hear.</summary>
     private string? hearingLanguage;
+    private string? hearingPreference;
 
     /// <summary>An account hears with the offline engine; own keys keep the configured provider. A language this PC's
     /// engines don't hear (Urdu) is heard by Gemini instead, when there is a Gemini key.</summary>
     private void ApplyHearingForAccount()
     {
-        var chosen = AccountCapabilities.Current().HearsOnDevice
+        if (BuddyDictationManager.IsDictationInProgress) return;
+        hearingPreference = OpenClickyConfiguration.Settings.TranscriptionProvider;
+        var chosen = BuddyTranscriptionProviderFactory.ParsePreferredProvider(hearingPreference) is null
+                     && AccountCapabilities.Current().HearsOnDevice
             ? new OnDeviceHearingProvider(services.OfflineSpeech)
             : BuddyTranscriptionProviderFactory.MakeDefaultProvider(services.OfflineSpeech);
         hearingLanguage = ReplyLanguage.CurrentCode;
@@ -474,7 +473,8 @@ public sealed partial class CompanionManager : ObservableObject, ICompanionSetti
     /// <summary>shell.json changed: a new language may need another transcriber.</summary>
     private void OnSettingsChangedForHearing()
     {
-        if (ReplyLanguage.CurrentCode != hearingLanguage) services.MainThread.Post(ApplyHearingForAccount);
+        if (ReplyLanguage.CurrentCode != hearingLanguage || OpenClickyConfiguration.Settings.TranscriptionProvider != hearingPreference)
+            services.MainThread.Post(ApplyHearingForAccount);
     }
 
     public void Start()
@@ -507,14 +507,13 @@ public sealed partial class CompanionManager : ObservableObject, ICompanionSetti
             preferences.Remove(OverlayModel.RetiredDockedPreferenceKey);
             AppLog.Write("pointer: the retired dock setting was cleared");
         }
-        // Onboarded with every permission still granted: the pointer shows at once.
-        if (HasCompletedOnboarding && AllPermissionsGranted && IsClickyCursorEnabled) Overlay.ShowOverlayOnAllScreens();
+        if (IsClickyCursorEnabled) Overlay.ShowOverlayOnAllScreens();
 
         StartDictation();
         StartPermissionPrompts();
         if (ConnectorsAreEnabled) StartAppConnectPrompts();
         // Keep the Realtime voice session warm so talking is instant.
-        if (HasCompletedOnboarding && AllPermissionsGranted) WarmUpRealtimeVoice();
+        if (AllPermissionsGranted) WarmUpRealtimeVoice();
     }
 
     private void OnCredentialsChanged() => services.MainThread.Post(() =>

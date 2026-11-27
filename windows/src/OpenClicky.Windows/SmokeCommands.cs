@@ -18,6 +18,7 @@
 
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using OpenClicky.Core.Agent;
@@ -41,6 +42,10 @@ internal static class SmokeCommands
             return index >= 0 && index + offset < args.Length ? args[index + offset] : null;
         }
 
+        if (Argument("--pley-smoke-voice-fr") is { } voiceReport)
+        {
+            return Task.Run(() => FrenchVoiceSmokeAsync(voiceReport)).GetAwaiter().GetResult();
+        }
         if (args.Contains(PlatformSmoke.Flag))
         {
             ConsoleAttachment.Attach();
@@ -169,7 +174,11 @@ internal static class SmokeCommands
     private static float[] LoadMono16k(string path)
     {
         using var reader = new AudioFileReader(path);
-        ISampleProvider samples = reader;
+        return ReadMono16k(reader);
+    }
+
+    private static float[] ReadMono16k(ISampleProvider samples)
+    {
         if (samples.WaveFormat.Channels > 1) samples = new StereoToMonoSampleProvider(samples);
         if (samples.WaveFormat.SampleRate != 16_000) samples = new WdlResamplingSampleProvider(samples, 16_000);
         var all = new List<float>();
@@ -287,6 +296,98 @@ internal static class SmokeCommands
         return raw.Trim().Length > 0 ? 0 : 2;
     }
 
+    // A synthetic clip exercises the installed CPU runtimes and the model downloads without opening audio devices.
+    private static async Task<int> FrenchVoiceSmokeAsync(string reportPath)
+    {
+        var scratch = Directory.CreateTempSubdirectory("pley-voice-smoke-").FullName;
+        OpenClickyPaths.OverrideRoots(scratch, scratch);
+        using var report = new StreamWriter(reportPath) { AutoFlush = true };
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+        var cancellationToken = deadline.Token;
+        const string sentence = "Bonjour, j’ai préparé le café. Où est passée la clé ?";
+        try
+        {
+            _ = new HeadlessPlatform();
+            var kokoro = KokoroVoice.Shared!;
+            var parakeet = ParakeetDictation.Shared!;
+            report.WriteLine($"{RuntimeInformation.OSDescription} / {RuntimeInformation.ProcessArchitecture} / {Environment.ProcessorCount} logical CPUs");
+            var timer = Stopwatch.StartNew();
+            kokoro.Download();
+            await WaitForModelAsync(() => kokoro.State, cancellationToken);
+            report.WriteLine(FormattableString.Invariant($"Kokoro download, verification and extraction: {timer.Elapsed.TotalSeconds:F2} s"));
+            timer.Restart();
+            parakeet.Download();
+            await WaitForModelAsync(() => parakeet.State, cancellationToken);
+            report.WriteLine(FormattableString.Invariant($"Parakeet download, verification and extraction: {timer.Elapsed.TotalSeconds:F2} s"));
+
+            for (var iteration = 1; iteration <= 4; iteration++)
+            {
+                timer.Restart();
+                var wav = await kokoro.AudioAsync(sentence, "fr", cancellationToken);
+                var ttsMilliseconds = timer.Elapsed.TotalMilliseconds;
+                using var reader = new WaveFileReader(new MemoryStream(wav));
+                var samples = ReadMono16k(reader.ToSampleProvider());
+                var pcm = BuddyPCM16AudioConverter.FloatToPcm16(samples);
+                timer.Restart();
+                var heard = await parakeet.TranscribeAsync(pcm, cancellationToken);
+                report.WriteLine(FormattableString.Invariant(
+                    $"Run {iteration}: {samples.Length / 16_000.0:F2} s audio, Kokoro {ttsMilliseconds:F0} ms, Parakeet {timer.Elapsed.TotalMilliseconds:F0} ms"));
+                report.WriteLine(heard);
+                if (!heard.Contains("préparé", StringComparison.OrdinalIgnoreCase) || !heard.Contains("clé", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("The French recording did not produce the expected accented words.");
+            }
+
+            VerifyUnicodeClipboard();
+            report.WriteLine("Win32 Unicode clipboard and conditional restore: passed.");
+            return 0;
+        }
+        catch (Exception error)
+        {
+            report.WriteLine($"Failed: {error.GetType().Name}: {error.Message}");
+            return 1;
+        }
+        finally
+        {
+            OpenClickyPaths.ResetOverrides();
+            try { Directory.Delete(scratch, recursive: true); }
+            catch (IOException) { }
+        }
+    }
+
+    private static async Task WaitForModelAsync(Func<ModelInstallState> state, CancellationToken cancellationToken)
+    {
+        while (state() is not ModelInstallState.InstalledState)
+        {
+            if (state() is ModelInstallState.FailedState failure) throw new InvalidOperationException(failure.Message);
+            await Task.Delay(200, cancellationToken);
+        }
+    }
+
+    private static void VerifyUnicodeClipboard()
+    {
+        using var clipboard = new Win32Clipboard();
+        var original = clipboard.Snapshot();
+        const string previous = "Presse-papiers synthétique";
+        const string dictated = "À bientôt, chère amie !";
+        if (!original.CanRestore) throw new InvalidOperationException("The original clipboard could not be captured.");
+        try
+        {
+            if (!clipboard.SetText(previous)) throw new InvalidOperationException("Could not seed the Win32 clipboard.");
+            var snapshot = clipboard.Snapshot();
+            if (!clipboard.SetText(dictated, excludeFromHistory: true) || clipboard.GetText() != dictated)
+                throw new InvalidOperationException("The Unicode clipboard round-trip failed.");
+            var pasteSequence = clipboard.SequenceNumber;
+            if (!clipboard.RestoreIfUnchanged(snapshot, pasteSequence) || clipboard.GetText() != previous)
+                throw new InvalidOperationException("Could not restore the previous clipboard.");
+            if (clipboard.RestoreIfUnchanged(snapshot, pasteSequence))
+                throw new InvalidOperationException("The clipboard was overwritten after its sequence changed.");
+        }
+        finally
+        {
+            clipboard.Restore(original);
+        }
+    }
+
     private static async Task<int> VoiceSmokeAsync(string voiceName, bool play)
     {
         _ = new HeadlessPlatform();
@@ -312,7 +413,10 @@ internal static class SmokeCommands
             }
             Console.WriteLine("voice-smoke: kokoro installed");
         }
-        foreach (var sentence in new[] { "see that blue button up top? click it to start.", "then choose save as from the file menu, and pick your desktop." })
+        var sentences = ReplyLanguage.CurrentCode == "fr"
+            ? new[] { "Bonjour, j’ai préparé le café. Où est passée la clé ?", "Cliquez sur le bouton bleu pour enregistrer." }
+            : new[] { "see that blue button up top? click it to start.", "then choose save as from the file menu, and pick your desktop." };
+        foreach (var sentence in sentences)
         {
             var stopwatch = Stopwatch.StartNew();
             try
@@ -418,7 +522,7 @@ internal static class SmokeCommands
 
         public HeadlessPlatform()
         {
-            AppComposition.RegisterLocalModels(new ProcessRunner(), new Platform.NetworkReachability(), Preferences.Shared, mainThread: null);
+            AppComposition.RegisterLocalModels(new ProcessRunner(), mainThread: null);
             SpeechVoiceServices.Current = SpeechVoiceServices.ForThisPC(new WindowsSystemVoice());
         }
     }

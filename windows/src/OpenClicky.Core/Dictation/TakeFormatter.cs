@@ -76,6 +76,9 @@ public static class TakeFormatter
     /// <summary>Only the unmistakable ones: "ah", "er", "eh" and "mm" are words in romanised Indian languages.</summary>
     public static IReadOnlySet<string> Fillers { get; } = new HashSet<string>(StringComparer.Ordinal) { "um", "umm", "uh", "uhh", "erm", "hmm" };
 
+    private static readonly Regex FrenchHighPunctuation = new(@"(?<=[\p{L}\p{M}\p{N}»”\)\]])[   ]*([?!;])", RegexOptions.Compiled);
+    private static readonly Regex FrenchColon = new(@"(?<=[\p{L}\p{M}\p{N}»”\)\]])[   ]*:(?=\s|$)", RegexOptions.Compiled);
+
     // MARK: local pass
 
     /// <summary>The rules-only result. Deterministic; no network.</summary>
@@ -95,6 +98,11 @@ public static class TakeFormatter
         if (context.Language.BareCode is null or "en") text = SpokenNumbers.Digitize(text);
         text = ApplyDictionary(text, context.Dictionary);
         if (context.Style.SentenceCase) text = SentenceCased(text);
+        if (context.Language.BareCode == "fr")
+        {
+            text = FrenchHighPunctuation.Replace(text.Normalize(), "\u202F$1");
+            text = FrenchColon.Replace(text, "\u00A0:");
+        }
         return new FormattedTake(text, null, false);
     }
 

@@ -93,8 +93,8 @@ public class ModelDownloadTests
     [Fact]
     public void FailuresSayWhatWentWrong()
     {
-        Assert.Equal("the download failed: the server answered 404.", ModelDownloadException.DownloadFailed("the server answered 404").Message);
-        Assert.Equal("it couldn't be unpacked: tar exited with 1.", ModelDownloadException.UnpackFailed("tar exited with 1").Message);
+        Assert.Equal("Échec du téléchargement : the server answered 404.", ModelDownloadException.DownloadFailed("the server answered 404").Message);
+        Assert.Equal("Échec de l’extraction : tar exited with 1.", ModelDownloadException.UnpackFailed("tar exited with 1").Message);
     }
 
     [Fact]

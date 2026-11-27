@@ -51,6 +51,8 @@ public sealed partial class BuddyDictationManager : ObservableObject, IDictation
     private readonly IMicrophonePermission? microphonePermission;
     private IAudioCapture? audioCapture;
     private Action<AudioFrame>? installedFrameHandler;
+    private Action<Exception?>? installedStopHandler;
+    private CancellationTokenSource? pendingStartCancellation;
     private IBuddyStreamingTranscriptionSession? activeTranscriptionSession;
 
     /// <summary>
@@ -107,6 +109,11 @@ public sealed partial class BuddyDictationManager : ObservableObject, IDictation
         pendingStartRequestIdentifier = startRequestIdentifier;
 
         LastErrorMessage = null;
+        if (transcriptionProvider.UnavailableExplanation is { } unavailable)
+        {
+            LastErrorMessage = unavailable;
+            return;
+        }
         IsPreparingToRecord = true;
 
         if (!CheckMicrophoneAndSpeechPermissions())
@@ -134,40 +141,38 @@ public sealed partial class BuddyDictationManager : ObservableObject, IDictation
         IsKeyboardShortcutSessionActiveOrFinalizing = true;
         CurrentAudioPowerLevel = 0;
 
+        using var startCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        pendingStartCancellation = startCancellation;
         try
         {
-            await StartRecognitionSessionAsync(cancellationToken);
-            if (cancellationToken.IsCancellationRequested)
-            {
-                // The shortcut was released while the session was starting.
-                TearDownRecordingAndSession();
-                ResetSessionState();
-                return;
-            }
-            IsPreparingToRecord = false;
+            await StartRecognitionSessionAsync(startCancellation.Token);
+            startCancellation.Token.ThrowIfCancellationRequested();
+            if (pendingStartRequestIdentifier == startRequestIdentifier) IsPreparingToRecord = false;
         }
         catch (Exception error)
         {
-            IsPreparingToRecord = false;
-            if (error is OperationCanceledException && cancellationToken.IsCancellationRequested)
+            if (pendingStartRequestIdentifier != startRequestIdentifier) return;
+            if (!startCancellation.IsCancellationRequested)
             {
-                TearDownRecordingAndSession();
-                ResetSessionState();
-                return;
+                LastErrorMessage = UserFacingErrorMessage(error, "Impossible de démarrer la saisie vocale. Réessayez.");
+                AppLog.Write($"dictation: failed to start recognition session ({transcriptionProvider.DisplayName}): {error.GetType().Name}: {error.Message}");
             }
-            LastErrorMessage = UserFacingErrorMessage(error, "couldn't start voice input. try again.");
-            AppLog.Write($"dictation: failed to start recognition session ({transcriptionProvider.DisplayName}): {error.GetType().Name}: {error.Message}");
-            // The provider may have opened its session before the microphone refused to start: both
-            // go, as on a cancelled start, so nothing keeps feeding (or billing) a session no take
-            // is listening to.
             TearDownRecordingAndSession();
             ResetSessionState();
+        }
+        finally
+        {
+            if (ReferenceEquals(pendingStartCancellation, startCancellation)) pendingStartCancellation = null;
         }
     }
 
     public void StopPushToTalkFromKeyboardShortcut()
     {
-        pendingStartRequestIdentifier = Guid.NewGuid();
+        if (IsPreparingToRecord)
+        {
+            CancelCurrentDictation(preserveDraftText: false);
+            return;
+        }
 
         if (!isPushToTalkSessionOpen)
         {
@@ -202,6 +207,7 @@ public sealed partial class BuddyDictationManager : ObservableObject, IDictation
     public void CancelCurrentDictation(bool preserveDraftText = true)
     {
         pendingStartRequestIdentifier = Guid.NewGuid();
+        pendingStartCancellation?.Cancel();
 
         if (!IsDictationInProgress) return;
 
@@ -251,9 +257,14 @@ public sealed partial class BuddyDictationManager : ObservableObject, IDictation
             audioCapture.FramesAvailable -= installedFrameHandler;
             installedFrameHandler = null;
         }
+        if (installedStopHandler is not null)
+        {
+            audioCapture.CaptureStopped -= installedStopHandler;
+            installedStopHandler = null;
+        }
         try
         {
-            if (audioCapture.IsCapturing) audioCapture.Stop();
+            audioCapture.Stop();
         }
         catch (Exception error)
         {
@@ -304,13 +315,19 @@ public sealed partial class BuddyDictationManager : ObservableObject, IDictation
     {
         CancelActiveTranscriptionSession();
 
-        var callbacks = MakeTranscriptionCallbacks(BeginNewSessionIdentity());
+        var sessionIdentity = BeginNewSessionIdentity();
+        var callbacks = MakeTranscriptionCallbacks(sessionIdentity);
         var session = await transcriptionProvider.StartStreamingSessionAsync(
             BuildTranscriptionKeyterms(contextualKeyterms),
             callbacks.OnTranscriptUpdate,
             callbacks.OnFinalTranscriptReady,
             callbacks.OnError,
             cancellationToken);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            session.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
         activeTranscriptionSession = session;
 
         audioCapture ??= makeAudioCapture();
@@ -326,6 +343,9 @@ public sealed partial class BuddyDictationManager : ObservableObject, IDictation
         };
         installedFrameHandler = frameHandler;
         audioCapture.FramesAvailable += frameHandler;
+        installedStopHandler = error => callbacks.OnError(error
+            ?? new AudioCaptureException(AudioCaptureFailure.Other, "La capture du microphone s’est arrêtée."));
+        audioCapture.CaptureStopped += installedStopHandler;
         // Settings → microphone: a chosen input device, else the default.
         await audioCapture.StartAsync(new AudioCaptureOptions
         {
@@ -446,6 +466,14 @@ public sealed partial class BuddyDictationManager : ObservableObject, IDictation
 
     private static string UserFacingErrorMessage(Exception error, string fallback)
     {
+        if (error is AudioCaptureException captureError)
+            return captureError.Failure switch
+            {
+                AudioCaptureFailure.AccessDenied => MicrophonePermissionRequiredSentence,
+                AudioCaptureFailure.NoDevice => "Aucun microphone disponible. Vérifiez le branchement et l’entrée sélectionnée.",
+                AudioCaptureFailure.DeviceInUse => "Le microphone est utilisé par une autre application. Libérez-le, puis réessayez.",
+                _ => "Impossible de lire le microphone. Vérifiez l’entrée sélectionnée dans les paramètres Windows.",
+            };
         if (error is OfflineSpeechException offline && offline.UserFacingSentence.Trim().Length > 0) return offline.UserFacingSentence.Trim();
         var description = error.Message.Trim();
         if (description.Length > 0 && !description.StartsWith("Exception of type", StringComparison.Ordinal)) return description;
@@ -454,6 +482,7 @@ public sealed partial class BuddyDictationManager : ObservableObject, IDictation
 
     public void Dispose()
     {
+        CancelCurrentDictation(preserveDraftText: false);
         finalizeFallback?.Cancel();
         TearDownRecordingAndSession();
         audioCapture?.Dispose();
