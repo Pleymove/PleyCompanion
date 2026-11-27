@@ -31,15 +31,17 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
     public string? GetText()
     {
         if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return null;
-        return WithOpenClipboard<string?>(() =>
-        {
-            var handle = GetClipboardData(CF_UNICODETEXT);
-            if (handle == 0) return null;
-            var pointer = GlobalLock(handle);
-            if (pointer == 0) return null;
-            try { return Marshal.PtrToStringUni(pointer); }
-            finally { GlobalUnlock(handle); }
-        }, unavailable: null);
+        return WithOpenClipboard(ReadUnicodeText, unavailable: null);
+    }
+
+    private static string? ReadUnicodeText()
+    {
+        var handle = GetClipboardData(CF_UNICODETEXT);
+        if (handle == 0) return null;
+        var pointer = GlobalLock(handle);
+        if (pointer == 0) return null;
+        try { return Marshal.PtrToStringUni(pointer); }
+        finally { GlobalUnlock(handle); }
     }
 
     public bool SetText(string text, bool excludeFromHistory = false) => WithOpenClipboard(() =>
@@ -82,6 +84,14 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
             {
                 GlobalUnlock(handle);
             }
+        }
+        // Read the standard text format directly when enumeration or GlobalSize did not give it
+        // to us as a raw block. GetClipboardData can expose Unicode text even in that case.
+        if (!formats.Any(format => format.FormatId == CF_UNICODETEXT) && ReadUnicodeText() is { } unicodeText)
+        {
+            var data = Encoding.Unicode.GetBytes(unicodeText + "\0");
+            if (totalBytes + data.Length <= MaximumSnapshotBytes)
+                formats.Add(new ClipboardFormatData(CF_UNICODETEXT, null, data));
         }
         return formats.Count == 0 && CountClipboardFormats() > 0
             ? ClipboardSnapshot.Unavailable
