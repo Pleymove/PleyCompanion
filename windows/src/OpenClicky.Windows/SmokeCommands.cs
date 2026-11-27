@@ -391,6 +391,7 @@ internal static class SmokeCommands
         if (!clipboard.SetText(previous)) throw new InvalidOperationException("Could not seed the Win32 clipboard.");
         if (clipboard.GetText() != previous) throw new InvalidOperationException("Could not read the seeded Win32 Unicode text.");
         report.WriteLine("Seeded Win32 Unicode text was read back.");
+        if (!clipboard.SetText(previous)) throw new InvalidOperationException("Could not seed the Win32 clipboard for the snapshot.");
         var snapshot = clipboard.Snapshot();
         if (!snapshot.CanRestore || snapshot.IsEmpty)
             throw new InvalidOperationException("Could not snapshot the seeded Win32 clipboard.");

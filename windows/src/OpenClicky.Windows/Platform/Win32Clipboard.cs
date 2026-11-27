@@ -59,14 +59,33 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
         return true;
     }, unavailable: false);
 
-    public ClipboardSnapshot Snapshot() => WithOpenClipboard(() =>
+    public ClipboardSnapshot Snapshot()
+    {
+        var canReadText = IsClipboardFormatAvailable(CF_UNICODETEXT);
+        return WithOpenClipboard(() => ReadSnapshot(canReadText), ClipboardSnapshot.Unavailable);
+    }
+
+    private static ClipboardSnapshot ReadSnapshot(bool canReadText)
     {
         var formats = new List<ClipboardFormatData>();
         long totalBytes = 0;
+        // Read standard text through the tested Unicode path before asking delayed providers for
+        // additional formats. Some desktop sessions never enumerate the seeded text as a raw block.
+        if (canReadText && ReadUnicodeText() is { } unicodeText)
+        {
+            var data = Encoding.Unicode.GetBytes(unicodeText + "\0");
+            if (data.Length <= MaximumSnapshotBytes)
+            {
+                formats.Add(new ClipboardFormatData(CF_UNICODETEXT, null, data));
+                totalBytes = data.Length;
+            }
+        }
+
+        var hasUnicodeText = formats.Count != 0;
         uint format = 0;
         while ((format = EnumClipboardFormats(format)) != 0)
         {
-            if (!IsCopyableFormat(format)) continue;
+            if (!IsCopyableFormat(format) || (hasUnicodeText && format == CF_UNICODETEXT)) continue;
             var handle = GetClipboardData(format);
             if (handle == 0) continue;
             var size = (long)GlobalSize(handle);
@@ -85,18 +104,10 @@ public sealed class Win32Clipboard : IClipboard, IDisposable
                 GlobalUnlock(handle);
             }
         }
-        // Read the standard text format directly when enumeration or GlobalSize did not give it
-        // to us as a raw block. GetClipboardData can expose Unicode text even in that case.
-        if (!formats.Any(format => format.FormatId == CF_UNICODETEXT) && ReadUnicodeText() is { } unicodeText)
-        {
-            var data = Encoding.Unicode.GetBytes(unicodeText + "\0");
-            if (totalBytes + data.Length <= MaximumSnapshotBytes)
-                formats.Add(new ClipboardFormatData(CF_UNICODETEXT, null, data));
-        }
         return formats.Count == 0 && CountClipboardFormats() > 0
             ? ClipboardSnapshot.Unavailable
             : new ClipboardSnapshot(formats);
-    }, ClipboardSnapshot.Unavailable);
+    }
 
     public bool Restore(ClipboardSnapshot snapshot) => Restore(snapshot, null);
 
