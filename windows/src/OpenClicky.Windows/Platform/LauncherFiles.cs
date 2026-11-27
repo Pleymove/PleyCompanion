@@ -59,6 +59,7 @@ internal sealed class LauncherFiles(Func<IEnumerable<string?>> folders)
     {
         dynamic connection = Activator.CreateInstance(Type.GetTypeFromProgID("ADODB.Connection", true)!)!;
         dynamic? records = null;
+        dynamic? command = null;
         try
         {
             connection.ConnectionTimeout = 2;
@@ -66,8 +67,17 @@ internal sealed class LauncherFiles(Func<IEnumerable<string?>> folders)
             connection.Open("Provider=Search.CollatorDSO;Extended Properties='Application=Windows';");
             token.ThrowIfCancellationRequested();
             var escaped = term.Replace("'", "''").Replace("%", "[%]").Replace("_", "[_]");
-            records = connection.Execute("SELECT TOP 12 System.ItemPathDisplay, System.ItemTypeText FROM SYSTEMINDEX " +
-                $"WHERE System.ItemUrl LIKE 'file:%' AND System.FileName LIKE '%{escaped}%' ORDER BY System.DateModified DESC");
+            command = Activator.CreateInstance(Type.GetTypeFromProgID("ADODB.Command", true)!)!;
+            command.ActiveConnection = connection;
+            command.CommandTimeout = 2;
+            command.CommandText = "SELECT TOP 12 System.ItemPathDisplay, System.ItemTypeText FROM SYSTEMINDEX " +
+                $"WHERE System.ItemUrl LIKE 'file:%' AND System.FileName LIKE '%{escaped}%' ORDER BY System.DateModified DESC";
+            using var cancellation = token.Register(() =>
+            {
+                try { command.Cancel(); } catch (COMException) { }
+            });
+            token.ThrowIfCancellationRequested();
+            records = command.Execute();
             var files = new List<LauncherFile>();
             while (!records.EOF)
             {
@@ -81,6 +91,7 @@ internal sealed class LauncherFiles(Func<IEnumerable<string?>> folders)
         finally
         {
             if (records is not null) { records.Close(); Marshal.FinalReleaseComObject(records); }
+            if (command is not null) Marshal.FinalReleaseComObject(command);
             try { if (connection.State != 0) connection.Close(); }
             finally { Marshal.FinalReleaseComObject(connection); }
         }

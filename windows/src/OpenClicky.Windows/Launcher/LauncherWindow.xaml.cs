@@ -25,7 +25,7 @@ public partial class LauncherWindow : Window
     private readonly nint handle;
     private CancellationTokenSource? pending;
     private bool filesOnly;
-    private bool registered;
+    private int registeredId;
     private bool closing;
     private nint previous;
     private string shortcutLabel = "";
@@ -56,7 +56,7 @@ public partial class LauncherWindow : Window
         PreviewKeyDown += OnKey;
         Query.TextChanged += (_, _) => Refresh();
         Results.MouseDoubleClick += (_, _) => Execute(false);
-        Closed += (_, _) => { Cancel(); UnregisterHotKey(handle, 1); };
+        Closed += (_, _) => { Cancel(); UnregisterHotKey(handle, registeredId); };
     }
 
     internal async Task Load()
@@ -67,22 +67,30 @@ public partial class LauncherWindow : Window
 
     private void Bind(int choice, bool persist)
     {
-        if (registered && shortcutLabel == Bindings[choice].Name) return;
         var binding = Bindings[choice];
-        if (registered) UnregisterHotKey(handle, 1);
-        registered = RegisterHotKey(handle, 1, binding.Mod | 0x4000, binding.Key);
+        if (HasShortcut && shortcutLabel == binding.Name) return;
+        int nextId = registeredId == 1 ? 2 : 1;
+        if (!RegisterHotKey(handle, nextId, binding.Mod | 0x4000, binding.Key))
+        {
+            Status.Text = $"{binding.Name} indisponible (Windows ou Raycast). " +
+                (HasShortcut ? $"{shortcutLabel} reste actif." : "Choisissez un autre raccourci.");
+            if (!HasShortcut) shortcutLabel = binding.Name;
+            return;
+        }
+        if (HasShortcut) UnregisterHotKey(handle, registeredId);
+        registeredId = nextId;
         shortcutLabel = binding.Name;
-        if (registered && persist) preferences.Set("launcher.shortcut", choice);
+        if (persist) preferences.Set("launcher.shortcut", choice);
         Footer();
     }
-    private void Footer() => Status.Text = registered
+    private void Footer() => Status.Text = HasShortcut
         ? $"↑ ↓  Parcourir     Entrée  Ouvrir     Ctrl + Entrée  Emplacement     ·     {shortcutLabel}"
         : $"{shortcutLabel} indisponible (Windows ou Raycast). Choisissez un autre raccourci.";
-    internal bool HasShortcut => registered;
+    internal bool HasShortcut => registeredId != 0;
 
     private nint Messages(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
     {
-        if (msg == 0x312 && wParam == 1) { handled = true; Toggle(); }
+        if (msg == 0x312 && wParam == registeredId) { handled = true; Toggle(); }
         return 0;
     }
 
@@ -122,7 +130,7 @@ public partial class LauncherWindow : Window
 
     private void Cancel()
     {
-        pending?.Cancel();
+        if (pending is { } source) _ = source.CancelAsync();
         pending = null;
     }
 
@@ -156,6 +164,21 @@ public partial class LauncherWindow : Window
         var token = source.Token;
         try
         {
+            await Task.WhenAll(LoadIcons(), FindFiles());
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception e) { if (!token.IsCancellationRequested) Status.Text = e.Message; }
+        finally { if (pending == source) pending = null; }
+
+        void UpdateResults()
+        {
+            var selection = Results.SelectedIndex;
+            Results.Items.Refresh();
+            if (rows.Count > 0) Results.SelectedIndex = Math.Clamp(selection, 0, rows.Count - 1);
+        }
+
+        async Task LoadIcons()
+        {
             foreach (var (index, path) in appIcons)
             {
                 var image = await Task.Run(() => ShellIcon.Load(path), token);
@@ -163,18 +186,18 @@ public partial class LauncherWindow : Window
                 icons[path] = image;
                 if (image != null) rows[index] = rows[index] with { Icon = image, Glyph = "" };
             }
-            if (appIcons.Count > 0) Results.Items.Refresh();
+            if (appIcons.Count > 0) UpdateResults();
+        }
+
+        async Task FindFiles()
+        {
             if (query.Length < 2) return;
             await Task.Delay(140, token);
             var matches = await files.Search(query, token);
             token.ThrowIfCancellationRequested();
             rows.AddRange(matches.Select(f => new Row(f.Name, $"{f.Kind} · {f.Path}", "\uE8A5", f.Open, Reveal: () => f.Reveal())));
-            Results.Items.Refresh();
-            if (Results.SelectedIndex < 0 && rows.Count > 0) Results.SelectedIndex = 0;
+            UpdateResults();
         }
-        catch (OperationCanceledException) { }
-        catch (Exception e) { if (!token.IsCancellationRequested) Status.Text = e.Message; }
-        finally { if (pending == source) pending = null; }
     }
 
     private void OnKey(object sender, KeyEventArgs e)
