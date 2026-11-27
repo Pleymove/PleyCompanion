@@ -1,0 +1,45 @@
+<Window x:Class="OpenClicky.Windows.Launcher.LauncherWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="Lanceur PleyCompanion" Width="640" Height="428" WindowStyle="None"
+ ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True" AllowsTransparency="True"
+ Background="Transparent" FontFamily="Segoe UI Variable Text, Segoe UI" Foreground="#F2F0F5">
+ <Border Background="#19191D" CornerRadius="14" BorderThickness="1" BorderBrush="#4D4951" Padding="18,12">
+  <DockPanel>
+   <Grid DockPanel.Dock="Top" Margin="4,0,0,12">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" Foreground="#E7A68F" FontSize="19" VerticalAlignment="Center" Margin="0,0,14,0"/>
+    <Grid Grid.Column="1">
+     <TextBlock x:Name="Hint" Text="Rechercher une application, un fichier…" Foreground="#ADA9B2" FontSize="19" VerticalAlignment="Center" IsHitTestVisible="False"/>
+     <TextBox x:Name="Query" AutomationProperties.Name="Recherche locale" MaxLength="160" FontSize="19" Padding="0,8"
+      Background="Transparent" BorderThickness="0" Foreground="White" CaretBrush="White" VerticalContentAlignment="Center"/>
+    </Grid>
+    <Button Grid.Column="2" x:Name="Shortcut" Content="Raccourci" Background="#302D34" BorderThickness="0" Foreground="#E2DEE5" Padding="9,4" VerticalAlignment="Center"/>
+   </Grid>
+   <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#39373E" Padding="3,9,3,0">
+    <TextBlock x:Name="Status" Foreground="#BFBBC5" FontSize="12" TextWrapping="Wrap"/>
+   </Border>
+   <ListBox x:Name="Results" Background="Transparent" BorderThickness="0" Foreground="White" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+      AutomationProperties.Name="Résultats" HorizontalContentAlignment="Stretch" KeyboardNavigation.TabNavigation="Once">
+    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem">
+     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+      <Border x:Name="Row" CornerRadius="7" Padding="10,6"><ContentPresenter/></Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="#40363A"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate></Setter.Value></Setter>
+    </Style></ListBox.ItemContainerStyle>
+    <ListBox.ItemTemplate><DataTemplate><Grid>
+     <Grid.ColumnDefinitions><ColumnDefinition Width="35"/><ColumnDefinition/></Grid.ColumnDefinitions>
+     <Grid VerticalAlignment="Center" HorizontalAlignment="Left">
+      <TextBlock Text="{Binding Glyph}" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="#E6B19C" VerticalAlignment="Center"/>
+      <Image Source="{Binding Icon}" Width="24" Height="24"/>
+     </Grid>
+     <StackPanel Grid.Column="1"><TextBlock Text="{Binding Name}" Foreground="#FAF8FC" FontSize="15" TextTrimming="CharacterEllipsis"/>
+      <TextBlock Text="{Binding Detail}" Foreground="#B9B4C0" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}"/>
+     </StackPanel>
+    </Grid></DataTemplate></ListBox.ItemTemplate>
+   </ListBox>
+  </DockPanel>
+ </Border>
+</Window>

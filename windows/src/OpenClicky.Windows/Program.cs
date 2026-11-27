@@ -27,6 +27,7 @@ public static class Program
 
         if (SherpaHelperMain.IsHelperInvocation(args)) return SherpaHelperMain.Run(args);
 
+        if (args is ["--pley-smoke-launcher", var folder]) return Launcher.LauncherProbe.Run(folder);
         if (SmokeCommands.TryRun(args) is { } smokeExitCode) return smokeExitCode;
 
         if (args.Contains("--openclicky-ui-demo"))

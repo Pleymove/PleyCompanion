@@ -90,6 +90,22 @@ jobs:
           if-no-files-found: error
 
 
+      - name: Measure and capture the Windows launcher
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        timeout-minutes: 2
+        run: |
+          $folder = Join-Path $env:RUNNER_TEMP 'launcher-probe'
+          $process = Start-Process 'publish/win-x64/PleyCompanion.exe' -Wait -PassThru -ArgumentList @('--pley-smoke-launcher', ('"{0}"' -f $folder))
+          if ($process.ExitCode -ne 0) { Get-Content "$folder/error.txt"; throw "Launcher probe failed" }
+          Get-Content "$folder/timings.txt" | Tee-Object -Variable measurements
+          $measurements >> $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        with:
+          name: windows-x64-launcher
+          path: ${{ runner.temp }}/launcher-probe/
+
       - name: Verify French CPU voice
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         timeout-minutes: 10

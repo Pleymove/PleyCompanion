@@ -36,6 +36,9 @@ public sealed class TrayIcon : IDisposable
     private Icon icon;
 
     public event Action? AgentModeToggled;
+    public event Action? LauncherRequested;
+    public void NotifyShortcutConflict() => notifyIcon.ShowBalloonTip(5000, "Lanceur PleyCompanion",
+        "Raccourci indisponible. Ouvrez le lanceur depuis ce menu pour le modifier.", ToolTipIcon.Info);
     public event Action? OpenWindowRequested;
     public event Action? OpenIslandRequested;
     public event Action? SettingsRequested;
@@ -87,6 +90,7 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add(Item("Agent Mode", () => AgentModeToggled?.Invoke(), state.IsAgentModeEnabled));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(Item($"Open {AppIdentity.Name}", () => OpenWindowRequested?.Invoke()));
+        menu.Items.Add(Item("Ouvrir le lanceur", () => LauncherRequested?.Invoke()));
         menu.Items.Add(Item("Open the Island", () => OpenIslandRequested?.Invoke()));
         menu.Items.Add(Item("Settings…", () => SettingsRequested?.Invoke(), shortcut: "Ctrl+,"));
         menu.Items.Add(Item("Replay Welcome…", () => ReplayWelcomeRequested?.Invoke()));
