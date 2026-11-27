@@ -64,7 +64,7 @@ internal sealed partial class SettingsRowFactory
             var removeButton = Ui.Button("Remove", () =>
             {
                 if (!SheetWindow.Confirm(actions.OwnerWindow, Settings, $"Remove the {provider.Title()} key?",
-                        "It’s deleted from %USERPROFILE%\\.openclicky\\shell.json. Keep a copy if you’ll need it again.", "Remove")) return;
+                        "It’s deleted from %LOCALAPPDATA%\\PleyCompanion\\shell.json. Keep a copy if you’ll need it again.", "Remove")) return;
                 SaveKey(provider, null);
                 keysState.RowStatus.Remove(provider);
                 keysState.AddStatus = $"{provider.Title()} key removed.";

@@ -360,11 +360,11 @@ public class LiveTypingDecisionTests
 
     /// <summary>The record page's "try it here" box would get the words twice (F-23).</summary>
     [Fact]
-    public void OpenClickysOwnWindowsAreNeverTypedIntoLive()
+    public void PleyCompanionsOwnWindowsAreNeverTypedIntoLive()
     {
         Assert.NotNull(LiveTypingExclusions.ReasonNotToType(new LiveTypingTargetIdentity(1, null), null, ownProcessId: 1));
-        Assert.NotNull(LiveTypingExclusions.ReasonNotToType(new LiveTypingTargetIdentity(2, "OpenClicky.exe"), null, ownProcessId: 1));
-        Assert.NotNull(LiveTypingExclusions.ReasonNotToType(new LiveTypingTargetIdentity(2, "openclicky"), null, ownProcessId: 1));
+        Assert.NotNull(LiveTypingExclusions.ReasonNotToType(new LiveTypingTargetIdentity(2, "PleyCompanion.exe"), null, ownProcessId: 1));
+        Assert.NotNull(LiveTypingExclusions.ReasonNotToType(new LiveTypingTargetIdentity(2, "pleycompanion"), null, ownProcessId: 1));
     }
 
     [Fact]

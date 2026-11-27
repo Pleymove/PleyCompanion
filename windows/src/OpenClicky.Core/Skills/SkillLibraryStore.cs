@@ -88,7 +88,7 @@ public sealed class SkillLibraryStore : INotifyPropertyChanged, IDisposable
     private readonly List<FileSystemWatcher> watchers = new();
     private Timer? reloadDebounce;
 
-    /// <param name="userSkillsDirectory">`%USERPROFILE%\.openclicky\skills` in the app.</param>
+    /// <param name="userSkillsDirectory">`%LOCALAPPDATA%\PleyCompanion\skills` in the app.</param>
     /// <param name="appSkillsDirectory">`app-skills/` of the checkout.</param>
     /// <param name="watch">Watch the directories for changes made by the CLI or by hand.</param>
     /// <param name="now">Clock for activations.json's `updatedAt`.</param>

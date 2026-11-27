@@ -2,7 +2,7 @@
 //  DrawingRecorder.cs
 //  OpenClicky (Windows; no Swift twin yet)
 //
-//  Saves the drawing on the stage (IDrawingSaver) to Videos\OpenClicky: a PNG of it as it is, an
+//  Saves the drawing on the stage (IDrawingSaver) to Videos\PleyCompanion: a PNG of it as it is, an
 //  MP4 of it being drawn with its voice, or both. The video is made by drawing it once more on the
 //  stage, its lines started and ended on the clock they were first spoken on, while WebView2's
 //  own captures of the page are taken; each line's audio is laid under the video at the moment
@@ -28,8 +28,8 @@ internal sealed class DrawingRecorder(DrawStageWindow window, DrawStageControlle
     private static readonly TimeSpan FrameGap = TimeSpan.FromMilliseconds(55);
     private static readonly TimeSpan Longest = TimeSpan.FromMinutes(4);
 
-    /// <summary>Where saved drawings go: Videos\OpenClicky.</summary>
-    public static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "OpenClicky");
+    /// <summary>Where saved drawings go: Videos\PleyCompanion.</summary>
+    public static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), AppIdentity.Name);
 
     /// <summary>Opens Explorer on the saved file (off for the smoke command).</summary>
     public bool RevealWhenSaved { get; init; } = true;
@@ -194,7 +194,7 @@ internal sealed class DrawingRecorder(DrawStageWindow window, DrawStageControlle
         return $"{clean} {when:yyyy-MM-dd HH.mm.ss}";
     }
 
-    /// <summary>The saved file, selected in the Explorer window already on Videos\OpenClicky when there is one (a second
+    /// <summary>The saved file, selected in the Explorer window already on Videos\PleyCompanion when there is one (a second
     /// save doesn't open a second window).</summary>
     private static void Reveal(string path)
     {

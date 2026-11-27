@@ -4,7 +4,7 @@
 //
 //  Shows a file selected in File Explorer, in the Explorer window already open on its folder when there is one.
 //  `explorer.exe /select,<file>` opens a new window every time, so saving three drawings left three windows on
-//  Videos\OpenClicky; SHOpenFolderAndSelectItems (the shell's own "show in folder") finds a window already showing the
+//  Videos\PleyCompanion; SHOpenFolderAndSelectItems (the shell's own "show in folder") finds a window already showing the
 //  folder, selects the file there and brings it forward, and only opens a window when none is. Falls back to
 //  explorer.exe when the shell call fails.
 //

@@ -132,7 +132,7 @@ internal sealed partial class SettingsRowFactory
     {
         var icon = new Image { Source = OpenClickyMarkDrawing.AppIconImage(Settings.AppIconColor), Width = 44, Height = 44 };
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(Ui.Text("OpenClicky", 15, SettingsLook.TextPrimary, FontWeights.SemiBold));
+        text.Children.Add(Ui.Text(item.Title, 15, SettingsLook.TextPrimary, FontWeights.SemiBold));
         var version = new TextBox
         {
             Text = item.Detail,

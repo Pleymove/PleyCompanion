@@ -71,7 +71,7 @@ internal sealed partial class SettingsRowFactory
                     var description = updater.LastCheckDescription;
                     var detail = updater.IsConfigured
                         ? (description.Length > 0 ? char.ToUpper(description[0]) + description[1..] + "." : item.Detail)
-                        : "This build has no update feed (a development build).";
+                        : "Updates are disabled for this build.";
                     return Ui.Card(Ui.Row(item.Title, detail, query,
                         Ui.Toggle(updater.AutomaticallyChecks, isOn => updater.AutomaticallyChecks = isOn, isEnabled: updater.IsConfigured)));
                 }, Changes.Of(services.Updater));

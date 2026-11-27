@@ -1,4 +1,10 @@
-# Code signing (SignPath Foundation)
+# Signature Windows
+
+PleyCompanion phase 1 génère un installateur non signé remis comme artefact Actions. La chaîne active ne charge aucun secret de signature et ne publie aucune release. Respecter les politiques Windows lors de la validation. [Procédure PleyCompanion](../README.md)
+
+## Référence amont OpenClicky
+
+Les instructions SignPath qui suivent décrivent le workflow d’origine d’OpenClicky. Les identités, fichiers et réglages cités appartiennent à ce workflow. [Projet amont](https://github.com/prasanthsasikumar/openclicky)
 
 Windows releases are built and signed by `.github/workflows/windows-release.yml`. Signing goes through
 [SignPath Foundation](https://signpath.org)'s free program for open-source projects: SignPath only signs
@@ -84,4 +90,4 @@ signature their publishers gave them. SmartScreen judges the installer and `Open
 signed. A new certificate still has to build reputation over a few releases before the "Windows
 protected your PC" prompt stops appearing.
 
-`windows/installer/build-release.ps1` stays the way to make a local, unsigned build.
+`windows/installer/build-release.ps1` was the local unsigned build entry point in the upstream workflow.

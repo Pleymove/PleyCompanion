@@ -6,7 +6,7 @@
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <AssemblyName>OpenClicky</AssemblyName>
+    <AssemblyName>PleyCompanion</AssemblyName>
     <RootNamespace>OpenClicky.Windows</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

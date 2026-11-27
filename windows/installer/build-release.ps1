@@ -1,109 +1,60 @@
+#Requires -Version 7.4
 <#
 .SYNOPSIS
-    Builds the OpenClicky for Windows release: a self-contained publish per architecture, packed by
-    Velopack into Setup.exe plus full (and, with an earlier release at hand, delta) packages.
-
+    Builds the self-contained Windows x64 app and packages it with Velopack.
 .DESCRIPTION
-    For each runtime (win-x64, win-arm64 by default):
-      1. dotnet publish -c Release -r <rid> --self-contained into windows\publish\<rid>
-      2. vpk download github (only with -Publish or -Deltas: fetches the last release so a delta can be made)
-      3. vpk pack into windows\Releases\<rid>, channel "win" (x64) or "win-arm64"
-    -Publish uploads each channel with `vpk upload github` to the OpenClicky repository's releases
-    (needs a token: -GitHubToken or $env:GITHUB_TOKEN). Velopack's UpdateManager in the app reads the
-    same releases (Companion\VelopackAppUpdater.cs), each architecture from its own channel.
-
-.EXAMPLE
-    .\build-release.ps1                                   # both architectures, version from Directory.Build.props
-    .\build-release.ps1 -Runtimes win-arm64 -Version 0.1.1
-    .\build-release.ps1 -Version 0.2.0 -Publish           # build, pack with deltas, upload a draft release
+    The installer and its SHA-256 are written to windows\Releases\win-x64.
+    The version defaults to windows\Directory.Build.props. Run with PowerShell 7 on Windows x64.
 #>
 [CmdletBinding()]
-param(
-    [string[]] $Runtimes = @('win-x64', 'win-arm64'),
-    [string] $Version,
-    [switch] $Deltas,
-    [switch] $Publish,
-    [switch] $PublishAsFinal,
-    [string] $GitHubToken = $env:GITHUB_TOKEN,
-    [string] $RepoUrl = 'https://github.com/prasanthsasikumar/openclicky',
-    # Velopack installs into %LOCALAPPDATA%\<packId> and deletes that folder on uninstall. The app keeps
-    # its own data (logs, preferences, history, downloaded models) in %LOCALAPPDATA%\OpenClicky, so the
-    # package must not be called "OpenClicky" or an uninstall would wipe it.
-    [string] $PackId = 'OpenClicky.Windows'
-)
+param([string] $Version)
 
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
+
+if (-not $IsWindows -or [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
+    throw 'Run the packaging script with PowerShell 7 on Windows x64.'
+}
+
 $windowsDirectory = Split-Path -Parent $PSScriptRoot
-$project = Join-Path $windowsDirectory 'src\OpenClicky.Windows\OpenClicky.Windows.csproj'
-$icon = Join-Path $windowsDirectory 'src\OpenClicky.Windows\Assets\OpenClicky.ico'
-$publishRoot = Join-Path $windowsDirectory 'publish'
-$releasesRoot = Join-Path $windowsDirectory 'Releases'
+$project = 'src/OpenClicky.Windows/OpenClicky.Windows.csproj'
+$publishDirectory = Join-Path $windowsDirectory 'publish/win-x64'
+$releaseDirectory = Join-Path $windowsDirectory 'Releases/win-x64'
 
-# dotnet and the vpk tool on PATH.
-$dotnetDirectory = 'C:\Program Files\dotnet'
-if (Test-Path $dotnetDirectory) { $env:PATH = "$dotnetDirectory;$env:PATH" }
-$toolsDirectory = Join-Path $env:USERPROFILE '.dotnet\tools'
-$env:PATH = "$env:PATH;$toolsDirectory"
-if (-not (Get-Command vpk -ErrorAction SilentlyContinue)) {
-    Write-Host 'vpk (the Velopack CLI) is not installed; installing it as a global dotnet tool.'
-    # The CLI matches the Velopack package the app references.
-    dotnet tool install -g vpk --version 1.2.161
-    if ($LASTEXITCODE -ne 0) { throw 'could not install vpk' }
-}
-
-if (-not $Version) {
-    # One version for the whole solution, kept in step with macos/OpenClicky/VERSION.
-    [xml] $buildProps = Get-Content (Join-Path $PSScriptRoot '..\Directory.Build.props')
-    $Version = ($buildProps.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ }) | Select-Object -First 1
-    if (-not $Version) { throw 'no -Version given and none in Directory.Build.props' }
-}
-if ($Publish -and -not $GitHubToken) { throw '-Publish needs -GitHubToken or $env:GITHUB_TOKEN' }
-
-Write-Host "OpenClicky $Version for $($Runtimes -join ', ')"
-
-# Windows Installer reads only major.minor.build and replaces an older install only when that is higher:
-# 0.10.1-dev.2 and -dev.3 both read 0.10.1, so each new MSI installed beside the last (2026-10-28).
-# The dev number goes into the build field instead: X.Y.Z-dev.N -> X.Y.(Z*100+N), a release X.Y.(Z*100+99),
-# so every dev build replaces the one before and the release replaces its dev builds.
-if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z]+\.(\d+))?$') { throw "version '$Version' is not X.Y.Z or X.Y.Z-tag.N" }
-$devNumber = if ($Matches[4]) { [int]$Matches[4] } else { 99 }
-if ($devNumber -gt 98 -and $Matches[4]) { throw "a dev number above 98 does not fit the MSI version" }
-$msiVersion = '{0}.{1}.{2}' -f $Matches[1], $Matches[2], ([int]$Matches[3] * 100 + $devNumber)
-# The built-in dictation model ships in every release (hash-checked; skipped when already there).
-& (Join-Path $windowsDirectory 'scripts\fetch-speech-model.ps1')
-foreach ($runtime in $Runtimes) {
-    $channel = if ($runtime -eq 'win-x64') { 'win' } else { $runtime }
-    $publishDirectory = Join-Path $publishRoot $runtime
-    $releaseDirectory = Join-Path $releasesRoot $runtime
-
-    Write-Host "== ${runtime}: dotnet publish"
-    if (Test-Path $publishDirectory) { Remove-Item -Recurse -Force $publishDirectory }
-    dotnet publish $project -c Release -r $runtime --self-contained true -p:Version=$Version -o $publishDirectory
-    if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $runtime" }
-
-    New-Item -ItemType Directory -Force $releaseDirectory | Out-Null
-    if ($Publish -or $Deltas) {
-        Write-Host "== ${runtime}: fetching the last release for a delta"
-        $downloadArguments = @('download', 'github', '--repoUrl', $RepoUrl, '--channel', $channel, '-o', $releaseDirectory)
-        if ($GitHubToken) { $downloadArguments += @('--token', $GitHubToken) }
-        vpk @downloadArguments
-        if ($LASTEXITCODE -ne 0) { Write-Warning "no earlier release for $channel; packing a full package only" }
+Push-Location $windowsDirectory
+try {
+    if (-not $Version) {
+        [xml] $buildProps = Get-Content -Raw Directory.Build.props
+        $Version = $buildProps.Project.PropertyGroup.Version
+    }
+    if ($Version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[A-Za-z]+\.(0|[1-9][0-9]*))?\z') {
+        throw 'Use a version in X.Y.Z or X.Y.Z-tag.N format.'
     }
 
-    Write-Host "== ${runtime}: vpk pack (msi version $msiVersion)"
-    vpk pack --packId $PackId --packVersion $Version --packDir $publishDirectory --mainExe OpenClicky.exe `
-        --packTitle OpenClicky --packAuthors OpenClicky --icon $icon --runtime $runtime --channel $channel `
-        --shortcuts 'Desktop,StartMenuRoot' --msi --msiVersion $msiVersion --instLocation PerMachine -o $releaseDirectory
-    if ($LASTEXITCODE -ne 0) { throw "vpk pack failed for $runtime" }
+    dotnet tool restore
+    ./scripts/fetch-speech-model.ps1
 
-    if ($Publish) {
-        Write-Host "== ${runtime}: vpk upload github"
-        $uploadArguments = @('upload', 'github', '--repoUrl', $RepoUrl, '--token', $GitHubToken, '--channel', $channel,
-                             '-o', $releaseDirectory, '--merge', '--releaseName', "OpenClicky $Version", '--tag', "v$Version")
-        if ($PublishAsFinal) { $uploadArguments += '--publish' }
-        vpk @uploadArguments
-        if ($LASTEXITCODE -ne 0) { throw "vpk upload failed for $runtime" }
+    foreach ($directory in @($publishDirectory, $releaseDirectory)) {
+        if (Test-Path -LiteralPath $directory) { Remove-Item -LiteralPath $directory -Recurse -Force }
     }
-    Get-ChildItem $releaseDirectory | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
+
+    Write-Host "Publishing PleyCompanion $Version (win-x64)"
+    dotnet publish $project -c Release -r win-x64 --self-contained true -p:RestoreLockedMode=true "-p:Version=$Version" -o $publishDirectory
+    Copy-Item -LiteralPath ../LICENSE -Destination $publishDirectory
+
+    dotnet tool run vpk -- --skip-updates pack --packId PleyCompanion.Windows --packVersion $Version `
+        --packDir $publishDirectory --mainExe PleyCompanion.exe --packTitle PleyCompanion --packAuthors Pleymove `
+        --icon 'src/OpenClicky.Windows/Assets/OpenClicky.ico' --runtime win-x64 --channel pleycompanion-win-x64 `
+        --shortcuts 'Desktop,StartMenuRoot' -o $releaseDirectory
+
+    $setup = @(Get-ChildItem -LiteralPath $releaseDirectory -File -Filter '*-Setup.exe')
+    if ($setup.Count -ne 1) { throw "Expected one Velopack installer, found $($setup.Count)." }
+    $installer = Join-Path $releaseDirectory 'PleyCompanion-Setup.exe'
+    if ($setup[0].FullName -ne $installer) { Move-Item -LiteralPath $setup[0].FullName -Destination $installer }
+    $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash  PleyCompanion-Setup.exe" | Set-Content -LiteralPath (Join-Path $releaseDirectory 'SHA256SUMS.txt') -Encoding ascii
+    Write-Host "Installer: $installer"
 }
-Write-Host "Done: $releasesRoot"
+finally {
+    Pop-Location
+}
