@@ -256,7 +256,7 @@ public sealed class DictationSettingsTests
         Assert.Null(Reason(DictationEngineChoice.Moonshine, bareLanguage: "en"));
         Assert.Equal(DictationEngineResolver.MoonshineLanguageNotHeardReason, Reason(DictationEngineChoice.Moonshine, bareLanguage: "de"));
         Assert.Equal(DictationEngineResolver.MoonshineMissingReason, Reason(DictationEngineChoice.Moonshine, moonshineInstalled: false));
-        Assert.Equal("Téléchargez Parakeet (465 MB) dans les paramètres de dictée.", Reason(DictationEngineChoice.Parakeet, parakeetInstalled: false));
+        Assert.Equal("Téléchargez Parakeet V3 (465 Mio) dans Reconnaissance vocale.", Reason(DictationEngineChoice.Parakeet, parakeetInstalled: false));
         Assert.Equal(DictationEngineResolver.ParakeetLanguageNotHeardReason, Reason(DictationEngineChoice.Parakeet, bareLanguage: "hi"));
         Assert.Null(Reason(DictationEngineChoice.Parakeet, bareLanguage: "de"));
         Assert.Equal("needs your sarvam key", Reason(DictationEngineChoice.Sarvam, sarvamKey: " \n"));

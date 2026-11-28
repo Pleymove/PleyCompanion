@@ -441,6 +441,18 @@ internal static class Changes
         return new Subscription(() => source.PropertyChanged -= OnChanged);
     };
 
+    public static Func<Action, IDisposable> WhenChanged(INotifyPropertyChanged source, Func<bool> read) => changed =>
+    {
+        var last = read();
+        return Of(source)(() =>
+        {
+            var current = read();
+            if (current == last) return;
+            last = current;
+            changed();
+        });
+    };
+
     /// <summary>shell.json changed (a key, the token, a sign-in, the voice), from these pages or by hand.</summary>
     public static Func<Action, IDisposable> Shell => changed =>
     {

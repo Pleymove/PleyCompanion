@@ -21,14 +21,12 @@ internal sealed partial class SettingsRowFactory
         if (services.VoiceModels is not { } runtime)
             return Ui.Card(Ui.Row(item.Title, "Moteur indisponible dans ce contexte.", query, null));
         if (item.Id == "voiceModel.stt.moonshine")
-            return new LiveContent(() => MoonshineCard(runtime, item, query), Changes.Shell,
-                Changes.Of(Settings, nameof(DictationSettings.Engine), nameof(DictationSettings.LanguageCode)));
+            return new LiveContent(() => MoonshineCard(runtime, item, query), RecognitionChanges(runtime));
 
         var id = item.Id[(item.Id.LastIndexOf('.') + 1)..];
         if (VoiceModelCatalog.Recognition.FirstOrDefault(model => model.Info.Id == id) is { } stt
             && runtime.FindRecognizer(stt) is { } recognizer)
-            return new LiveContent(() => RecognizerCard(runtime, stt, recognizer, item, query), Changes.Of(recognizer), Changes.Shell,
-                Changes.Of(Settings, nameof(DictationSettings.Engine), nameof(DictationSettings.LanguageCode)));
+            return new LiveContent(() => RecognizerCard(runtime, stt, recognizer, item, query), RecognitionChanges(runtime, recognizer));
 
         if (VoiceModelCatalog.Synthesis.FirstOrDefault(model => model.Info.Id == id) is { } tts
             && runtime.FindVoice(tts.Choice) is { } voice)
@@ -37,13 +35,22 @@ internal sealed partial class SettingsRowFactory
         return null;
     }
 
+    private Func<Action, IDisposable>[] RecognitionChanges(VoiceModelRuntime runtime, ParakeetDictation? rowModel = null) =>
+    [
+        Changes.Shell,
+        Changes.Of(Settings, nameof(DictationSettings.Engine), nameof(DictationSettings.LanguageCode)),
+        .. runtime.Models.OfType<ParakeetDictation>().Select(model =>
+            model == rowModel ? Changes.Of(model) : Changes.WhenChanged(model, () => model.IsModelInstalled)),
+    ];
+
     private UIElement MoonshineCard(VoiceModelRuntime runtime, SettingsItem item, string query)
     {
         var model = VoiceModelCatalog.Moonshine;
         var installed = MoonshineFacts.IsInstalled;
         var active = ActiveRecognitionRoles(model.Id, DictationEngineChoice.Moonshine, MoonshineFacts.Hears, installed);
         var canUse = MoonshineFacts.Hears(Settings.Language.BareCode) && MoonshineFacts.Hears(ReplyLanguage.CurrentCode);
-        var activate = installed && canUse && !active.Both
+        var selected = Settings.Engine == DictationEngineChoice.Moonshine && OpenClickyConfiguration.Settings.TranscriptionProvider == "moonshine";
+        var activate = installed && canUse && !selected
             ? Ui.Button("Utiliser", () => SetRecognition(() => runtime.SelectMoonshine(Settings)), WpfUi.ControlAppearance.Primary)
             : null;
         var detail = installed && !canUse
@@ -60,7 +67,8 @@ internal sealed partial class SettingsRowFactory
         var installed = recognizer.IsModelInstalled;
         var active = ActiveRecognitionRoles(model.Info.Id, selected ? DictationEngineChoice.Parakeet : null, ParakeetFacts.Hears, installed);
         var canUse = ParakeetFacts.Hears(Settings.Language.BareCode) && ParakeetFacts.Hears(ReplyLanguage.CurrentCode);
-        var activate = installed && canUse && !active.Both
+        var pinned = selected && Settings.Engine == DictationEngineChoice.Parakeet && OpenClickyConfiguration.Settings.TranscriptionProvider == "parakeet";
+        var activate = installed && canUse && !pinned
             ? Ui.Button("Utiliser", () => SetRecognition(() => runtime.SelectRecognizer(model, Settings)), WpfUi.ControlAppearance.Primary)
             : null;
         var detail = installed && !canUse ? "Les langues de l’assistant et de la dictée doivent être prises en charge." : null;
@@ -68,17 +76,17 @@ internal sealed partial class SettingsRowFactory
             () => SetRecognition(() => _ = runtime.RemoveRecognizerAsync(model)));
     }
 
-    private (string Label, bool Any, bool Both) ActiveRecognitionRoles(string id, DictationEngineChoice? engine,
+    private (string Label, bool Any) ActiveRecognitionRoles(string id, DictationEngineChoice? engine,
         Func<string?, bool> hears, bool installed)
     {
         var dictation = installed && Settings.Engine == engine && hears(Settings.Language.BareCode);
         var assistant = installed && services.AssistantLocalSttId() == id;
         return (dictation, assistant) switch
         {
-            (true, true) => ("Actif · dictée et assistant", true, true),
-            (true, false) => ("Actif · dictée", true, false),
-            (false, true) => ("Actif · assistant", true, false),
-            _ => ("Installé", false, false),
+            (true, true) => ("Actif · dictée et assistant", true),
+            (true, false) => ("Actif · dictée", true),
+            (false, true) => ("Actif · assistant", true),
+            _ => ("Installé", false),
         };
     }
 

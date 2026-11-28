@@ -119,7 +119,7 @@ Sur un poste Windows 11 x64, utiliser un micro physique, écouter les deux aper�
 
 ### Pocket TTS
 
-Kyutai propose des poids français, une lecture audio par morceaux et un moteur prévu pour le CPU. Son implémentation de référence utilise Python et PyTorch. Sherpa publie un port ONNX int8 avec un exemple fondé sur un extrait vocal de référence. Un prochain essai devra charger un export français compatible avec la version de sherpa-onnx embarquée, vérifier la licence de la voix de référence et comparer sur Windows x64 le délai du premier audio, la mémoire et le rendu avec Piper et Kokoro. Pocket TTS reste à l’étude. [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts) · [Port PocketTTS de sherpa-onnx](https://k2-fsa.github.io/sherpa/onnx/tts/pocket.html)
+Kyutai propose des poids français, une lecture audio par morceaux et un moteur prévu pour le CPU. Son implémentation de référence utilise Python et PyTorch. Sherpa publie un port ONNX int8 avec un exemple fondé sur un extrait vocal de référence. Le paquet ONNX officiel documenté contient les poids anglais. Une demande de compatibilité signale des phrases françaises tronquées avec des exports communautaires sur sherpa-onnx 1.13.4. Un prochain essai devra charger un export français compatible avec la version embarquée, vérifier la licence de la voix de référence et comparer sur Windows x64 le délai du premier audio, la mémoire et le rendu avec Piper et Kokoro. Pocket TTS reste à l’étude. [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts) · [Port PocketTTS de sherpa-onnx](https://k2-fsa.github.io/sherpa/onnx/tts/pocket.html) · [Suivi des exports français](https://github.com/k2-fsa/sherpa-onnx/issues/3755)
 
 ### Lanceur Windows · 0.12.3
 
