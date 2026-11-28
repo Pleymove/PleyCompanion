@@ -19,7 +19,7 @@ public sealed class DictationProviderFactory(IOfflineSpeechRecognizer offlineRec
 
     /// <summary>Parakeet, whose unavailable reason is the resolver's (downloaded, and a language it hears).</summary>
     public IBuddyTranscriptionProvider MakeParakeet(Func<string?> bareLanguageCode) =>
-        new ParakeetTranscriptionProvider(() => DictationEngineResolver.ParakeetUnavailableReason(ParakeetFacts.IsInstalled, bareLanguageCode()));
+        new ParakeetTranscriptionProvider(() => ParakeetDictation.UnavailableReason(bareLanguageCode()));
 
     public IBuddyTranscriptionProvider MakeSarvam(Func<DictationLanguage> language) =>
         new SarvamTranscriptionProvider(() => language().Code, unavailableReason: DictationEngineResolver.SarvamUnavailableReason);

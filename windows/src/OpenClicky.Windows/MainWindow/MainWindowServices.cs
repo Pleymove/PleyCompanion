@@ -8,6 +8,7 @@ using OpenClicky.Core.Dictation;
 using OpenClicky.Core.Platform;
 using OpenClicky.Core.Providers;
 using OpenClicky.Core.Settings;
+using OpenClicky.Core.Speech;
 using OpenClicky.Windows.Platform;
 
 namespace OpenClicky.Windows.AppWindow;
@@ -26,6 +27,8 @@ public sealed class MainWindowServices
     public required IDictationHistoryActions History { get; init; }
     public required IAppUpdater Updater { get; init; }
     public required ISettingsServices Services { get; init; }
+    public VoiceModelRuntime? VoiceModels { get; init; }
+    public Func<string?> AssistantLocalSttId { get; init; } = () => null;
     public required ISettingsTourPointer TourPointer { get; init; }
     public required ISettingsTourNarrator TourNarrator { get; init; }
 

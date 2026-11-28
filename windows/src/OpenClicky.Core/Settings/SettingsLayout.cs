@@ -104,7 +104,12 @@ public static class SettingsLayout
     ];
 
     public static IReadOnlyList<Group> Groups { get; } =
-        [.. DictationGroups, .. ClickyGroups, .. IslandGroups, .. AccountGroups, .. PrivacyGroups, .. GeneralGroups];
+        [
+            .. DictationGroups, .. ClickyGroups,
+            new(DictationSettingsPage.Recognition, "", ["voiceModel.stt.*"]),
+            new(DictationSettingsPage.Synthesis, "", ["voiceModel.tts.*"]),
+            .. IslandGroups, .. AccountGroups, .. PrivacyGroups, .. GeneralGroups,
+        ];
 
     /// <summary>The pages shown one section at a time: the sidebar opens them into their groups (Clicky had grown to some
     /// thirty rows on one page).</summary>

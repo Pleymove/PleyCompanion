@@ -28,6 +28,8 @@ public sealed class OpenClickyShellSettings
     /// <summary>"openai" (via the backend, default), "assemblyai", or "apple" (the offline engine).</summary>
     [JsonPropertyName("transcriptionProvider")] public string? TranscriptionProvider { get; set; }
 
+    [JsonPropertyName("parakeetModel")] public string? ParakeetModel { get; set; }
+
     /// <summary>The language OpenClicky speaks and transcribes ("en", "hi"). Unset is English.</summary>
     [JsonPropertyName("language")] public string? Language { get; set; }
 

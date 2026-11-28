@@ -134,15 +134,15 @@ jobs:
           }
           if ($process.ExitCode -ne 0) { throw "Win32 clipboard probe failed with exit code $($process.ExitCode)." }
 
-      - name: Verify upgrade from 0.12.1 and fresh launch
+      - name: Verify upgrade from launcher 0.12.3 and fresh launch
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         timeout-minutes: 10
         run: |
-          $phase1 = Join-Path $env:RUNNER_TEMP 'pley-phase1'
-          git worktree add --detach $phase1 290508b9a11fb7922a71d13afe71e6ceda653d75
-          & (Join-Path $phase1 'windows/installer/build-release.ps1')
-          ./scripts/test-upgrade.ps1 -BaselineInstaller (Join-Path $phase1 'windows/Releases/win-x64/PleyCompanion-Setup.exe') `
-              -Installer 'Releases/win-x64/PleyCompanion-Setup.exe' | Tee-Object -Variable outcomes
+          $baseline = Join-Path $env:RUNNER_TEMP 'pley-launcher-baseline'
+          git worktree add --detach $baseline c9d19d8b045c4122835538a7af53f97d8a602811
+          & (Join-Path $baseline 'windows/installer/build-release.ps1')
+          ./scripts/test-upgrade.ps1 -BaselineInstaller (Join-Path $baseline 'windows/Releases/win-x64/PleyCompanion-Setup.exe') `
+              -ExpectedBaselineVersion '0.12.3.0' -Installer 'Releases/win-x64/PleyCompanion-Setup.exe' | Tee-Object -Variable outcomes
           '### Installation and upgrade' >> $env:GITHUB_STEP_SUMMARY
           $outcomes | ForEach-Object { "- $_" } >> $env:GITHUB_STEP_SUMMARY
 

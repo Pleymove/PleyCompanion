@@ -9,6 +9,7 @@ using OpenClicky.Core.Dictation;
 using OpenClicky.Core.Plugins;
 using OpenClicky.Core.Providers;
 using OpenClicky.Core.Shortcuts;
+using OpenClicky.Core.Speech;
 
 namespace OpenClicky.Core.Settings;
 
@@ -33,7 +34,7 @@ public sealed class SettingsCatalog
     /// <summary>Every row as its builder makes it, before the layout gives it a page and a place.</summary>
     private IReadOnlyList<SettingsItem> UnplacedItems() =>
     [
-        .. DictationItems(), .. KeyboardItems(), .. OrbItems(), .. ClickyItems(), .. ModelsItems(), .. VoiceItems(), .. PluginsItems(), .. IslandItems(),
+        .. DictationItems(), .. KeyboardItems(), .. OrbItems(), .. ClickyItems(), .. ModelsItems(), .. VoiceItems(), .. VoiceModelItems(), .. PluginsItems(), .. IslandItems(),
         .. AccountItems(), .. KeysItems(), .. PrivacyItems(), .. GeneralItems(), .. AboutItems(), .. NavigationItems(),
     ];
 
@@ -202,6 +203,30 @@ public sealed class SettingsCatalog
             Item("dictation.sounds", "Sounds", "Tones when a take starts, stops or finishes.",
                 ["sound", "tone", "earcon", "audio", "beep", "mute", "quiet"]),
         ];
+    }
+
+    private static IEnumerable<SettingsItem> VoiceModelItems()
+    {
+        SettingsItem Model(string prefix, VoiceModelInfo model) => new()
+        {
+            Id = $"voiceModel.{prefix}.{model.Id}",
+            Title = model.Name,
+            Detail = $"{model.Detail} · {model.Languages}",
+            Keywords = [model.Id, "modèles vocaux", "local", "hors ligne", "télécharger",
+                prefix == "stt" ? "STT reconnaissance vocale transcription dictée" : "TTS synthèse vocale voix aperçu"],
+        };
+
+        foreach (var model in VoiceModelCatalog.Recognition) yield return Model("stt", model.Info);
+        // The row can explain that a developer build lacks the bundled asset.
+        yield return Model("stt", VoiceModelCatalog.Moonshine);
+        yield return new SettingsItem
+        {
+            Id = "voiceModel.stt.test",
+            Title = "Test de transcription",
+            Detail = "Enregistrez cinq secondes et lisez le résultat du moteur de dictée sélectionné.",
+            Keywords = ["microphone", "diagnostic", "STT"],
+        };
+        foreach (var model in VoiceModelCatalog.Synthesis) yield return Model("tts", model.Info);
     }
 
     // MARK: - Clicky and Voice (SettingsClickyPage.swift)

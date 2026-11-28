@@ -40,7 +40,7 @@ public static class DictationSections
 }
 
 /// <summary>
-/// The settings pages. Six are in the sidebar (<see cref="DictationSettingsPages.SidebarPages"/>, in
+/// The settings pages. The primary pages are in the sidebar (<see cref="DictationSettingsPages.SidebarPages"/>, in
 /// its order); The orb and Calendars are opened from a row on their parent page and keep the parent
 /// selected in the sidebar.
 /// </summary>
@@ -58,6 +58,8 @@ public enum DictationSettingsPage
     Orb,
     /// <summary>Opened from Island.</summary>
     Calendars,
+    Recognition,
+    Synthesis,
 }
 
 public static class DictationSettingsPages
@@ -67,7 +69,8 @@ public static class DictationSettingsPages
     /// <summary>The pages the sidebar lists, in order.</summary>
     public static IReadOnlyList<DictationSettingsPage> SidebarPages { get; } =
     [
-        DictationSettingsPage.Dictation, DictationSettingsPage.Clicky, DictationSettingsPage.Island,
+        DictationSettingsPage.Dictation, DictationSettingsPage.Clicky,
+        DictationSettingsPage.Recognition, DictationSettingsPage.Synthesis, DictationSettingsPage.Island,
         DictationSettingsPage.Account, DictationSettingsPage.Privacy, DictationSettingsPage.General,
     ];
 
@@ -81,6 +84,8 @@ public static class DictationSettingsPages
         DictationSettingsPage.Privacy => "privacy",
         DictationSettingsPage.General => "general",
         DictationSettingsPage.Orb => "orb",
+        DictationSettingsPage.Recognition => "recognition",
+        DictationSettingsPage.Synthesis => "synthesis",
         _ => "calendars",
     };
 
@@ -101,6 +106,8 @@ public static class DictationSettingsPages
         DictationSettingsPage.Privacy => "Privacy",
         DictationSettingsPage.General => "General",
         DictationSettingsPage.Orb => "The orb",
+        DictationSettingsPage.Recognition => "Reconnaissance vocale",
+        DictationSettingsPage.Synthesis => "Synthèse vocale",
         _ => "Calendars",
     };
 
@@ -118,6 +125,8 @@ public static class DictationSettingsPages
         DictationSettingsPage.Privacy => "What OpenClicky can see, and what it keeps.",
         DictationSettingsPage.General => "Startup, the tray and updates.",
         DictationSettingsPage.Orb => "The small narrator that shows while you dictate.",
+        DictationSettingsPage.Recognition => "Les modèles locaux de l’assistant standard et de la dictée.",
+        DictationSettingsPage.Synthesis => "Les voix locales pour les réponses de l’assistant standard.",
         _ => "Which calendars the island shows.",
     };
 
@@ -131,6 +140,8 @@ public static class DictationSettingsPages
         DictationSettingsPage.Privacy => "",
         DictationSettingsPage.General => "",
         DictationSettingsPage.Orb => "",
+        DictationSettingsPage.Recognition => "",
+        DictationSettingsPage.Synthesis => "",
         _ => "",
     };
 
@@ -142,6 +153,8 @@ public static class DictationSettingsPages
         DictationSettingsPage.Island or DictationSettingsPage.Calendars => "#1C1C1E",
         DictationSettingsPage.Account => "#34C759",
         DictationSettingsPage.Privacy => "#5E5CE6",
+        DictationSettingsPage.Recognition => "#007C84",
+        DictationSettingsPage.Synthesis => "#8953C4",
         _ => "#8E8E93",
     };
 

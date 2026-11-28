@@ -341,6 +341,9 @@ internal static class SmokeCommands
                     throw new InvalidOperationException("The French recording did not produce the expected accented words.");
             }
 
+            await kokoro.UnloadAsync();
+            await parakeet.UnloadAsync();
+            await VoiceModelManagerSmokeAsync(report, cancellationToken);
             return 0;
         }
         catch (Exception error)
@@ -354,6 +357,88 @@ internal static class SmokeCommands
             try { Directory.Delete(scratch, recursive: true); }
             catch (IOException) { }
         }
+    }
+
+    private static async Task VoiceModelManagerSmokeAsync(TextWriter report, CancellationToken cancellationToken)
+    {
+        var runtime = VoiceModelRuntime.Shared!;
+        var piper = runtime.FindVoice(SpeechVoiceChoice.Piper)!;
+        var ultra = runtime.FindRecognizer(VoiceModelCatalog.ParakeetUltra)!;
+        var settings = new DictationSettings(Preferences.InMemory()) { LanguageCode = "fr-FR" };
+        OpenClickyConfiguration.Update(shell =>
+        {
+            shell.Language = "fr";
+            shell.KokoroSpeaker = 30;
+            shell.SpeechVoice = "kokoro";
+            shell.TranscriptionProvider = "parakeet";
+        });
+
+        piper.Download();
+        piper.CancelDownload();
+        while (piper.State.IsBusy) await Task.Delay(100, cancellationToken);
+        if (piper.State != ModelInstallState.NotInstalled || piper.IsModelInstalled)
+            throw new InvalidOperationException("Piper did not return to the uninstalled state after cancellation.");
+        report.WriteLine("Piper download cancellation: passed.");
+
+        foreach (var model in new DownloadableVoiceModel[] { piper, ultra })
+        {
+            var install = Stopwatch.StartNew();
+            model.Download();
+            await WaitForModelAsync(() => model.State, cancellationToken);
+            report.WriteLine(FormattableString.Invariant($"{model.Info.Name} verified and installed in {install.Elapsed.TotalSeconds:F2} s."));
+        }
+        if (SpeechVoiceChoices.Current() != SpeechVoiceChoice.Kokoro || ParakeetDictation.Current != ParakeetDictation.Shared)
+            throw new InvalidOperationException("Installing models changed the active selection.");
+
+        runtime.SelectVoice(VoiceModelCatalog.Piper);
+        runtime.SelectRecognizer(VoiceModelCatalog.ParakeetUltra, settings);
+        OpenClickyConfiguration.Reload();
+        if (SpeechVoiceChoices.Current() != SpeechVoiceChoice.Piper || ParakeetDictation.Current != ultra
+            || settings.Engine != DictationEngineChoice.Parakeet || OpenClickyConfiguration.Settings.KokoroSpeaker != 30)
+            throw new InvalidOperationException("The selected models did not persist or changed the Kokoro speaker.");
+
+        const string phrase = "Bonjour, ceci est un test de reconnaissance vocale en français.";
+        var timer = Stopwatch.StartNew();
+        var wav = await CloudVoiceSpeaker.AudioAsync(phrase, SpeechVoiceChoices.Current(), cancellationToken: cancellationToken);
+        using var reader = new WaveFileReader(new MemoryStream(wav));
+        if (reader.WaveFormat.SampleRate != 22_050 || reader.TotalTime.TotalSeconds < 1)
+            throw new InvalidOperationException("Piper did not return the expected French audio.");
+        var pcm = BuddyPCM16AudioConverter.FloatToPcm16(ReadMono16k(reader.ToSampleProvider()));
+        report.WriteLine(FormattableString.Invariant($"Piper generated {reader.TotalTime.TotalSeconds:F2} s in {timer.Elapsed.TotalMilliseconds:F0} ms."));
+
+        IOfflineSpeechRecognizer offline = new WindowsSpeechRecognizer();
+        var dictation = DictationEngineResolver.MakeProvider(settings.Engine, settings, new DictationProviderFactory(offline));
+        var assistant = BuddyTranscriptionProviderFactory.MakeDefaultProvider(offline);
+        foreach (var (name, provider) in new[] { ("dictation", dictation), ("assistant", assistant) })
+        {
+            timer.Restart();
+            var result = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var session = await provider.StartStreamingSessionAsync([], _ => { },
+                text => result.TrySetResult(text), error => result.TrySetException(error), cancellationToken);
+            try
+            {
+                if (session is not ParakeetTranscriptionSession localSession || provider.DisplayName != ultra.Info.Name)
+                    throw new InvalidOperationException($"{name} did not select the Ultra transcriber.");
+                localSession.AppendPcm16(pcm);
+                localSession.RequestFinalTranscript();
+                var heard = await result.Task.WaitAsync(cancellationToken);
+                report.WriteLine(FormattableString.Invariant($"{name} through Ultra ({timer.Elapsed.TotalMilliseconds:F0} ms): {heard}"));
+                if (!heard.Contains("reconnaissance vocale", StringComparison.OrdinalIgnoreCase)
+                    || !heard.Contains("français", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"{name} missed the expected French words.");
+            }
+            finally
+            {
+                session.Cancel();
+            }
+        }
+
+        await runtime.RemoveRecognizerAsync(VoiceModelCatalog.ParakeetUltra);
+        await piper.RemoveAsync();
+        if (ultra.IsModelInstalled || piper.IsModelInstalled || ParakeetDictation.Current != ParakeetDictation.Shared
+            || SpeechVoiceChoices.Current() != SpeechVoiceChoice.Kokoro)
+            throw new InvalidOperationException("Removal did not restore the available local models.");
+        report.WriteLine("Switching, saved preferences, removal and local fallback: passed.");
     }
 
     private static async Task WaitForModelAsync(Func<ModelInstallState> state, CancellationToken cancellationToken)

@@ -16,14 +16,14 @@ namespace OpenClicky.Windows.Speech;
 
 public static class SherpaHelperMain
 {
-    public const string KokoroFlag = KokoroVoice.HelperFlag;
     public const string ParakeetFlag = ParakeetDictation.HelperFlag;
     public const string MoonshineFlag = MoonshineDictation.HelperFlag;
 
     /// <summary>How long a helper waits for a request before it ends on its own.</summary>
     public static readonly TimeSpan IdleExit = TimeSpan.FromSeconds(180);
 
-    public static bool IsHelperInvocation(string[] args) => args.Any(argument => argument is KokoroFlag or ParakeetFlag or MoonshineFlag);
+    public static bool IsHelperInvocation(string[] args) => args.Any(argument => argument is ParakeetFlag or MoonshineFlag)
+        || VoiceModelCatalog.Synthesis.Any(model => args.Contains(model.HelperFlag));
 
     /// <summary>Runs the helper named in <paramref name="args"/> until stdin closes; returns the exit code.</summary>
     public static int Run(string[] args)
@@ -32,9 +32,9 @@ public static class SherpaHelperMain
         using var input = new StreamReader(Console.OpenStandardInput(), utf8);
         using var output = new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true, NewLine = "\n" };
         var idleInput = new IdleExitReader(input, IdleExit);
-        if (args.Contains(KokoroFlag))
+        if (VoiceModelCatalog.Synthesis.FirstOrDefault(model => args.Contains(model.HelperFlag)) is { } ttsModel)
         {
-            using var engine = new KokoroHelperEngine();
+            using var engine = new OfflineTtsHelperEngine(ttsModel);
             SherpaHelperProtocol.Run<KokoroEngineRequest, KokoroHelperReply>(idleInput, output, request => new KokoroHelperReply(Convert.ToBase64String(engine.Generate(request))));
             return 0;
         }
@@ -64,8 +64,8 @@ public static class SherpaHelperMain
     }
 }
 
-/// <summary>Kokoro through sherpa-onnx's OfflineTts (KokoroEngine.swift). Only ever used inside the helper.</summary>
-internal sealed class KokoroHelperEngine : IDisposable
+/// <summary>Sherpa's offline synthesizer, used only inside the helper.</summary>
+internal sealed class OfflineTtsHelperEngine(LocalTtsModel model) : IDisposable
 {
     private OfflineTts? tts;
     private string? loadedLanguageHint;
@@ -80,7 +80,7 @@ internal sealed class KokoroHelperEngine : IDisposable
             tts = null;
             var startedAt = DateTime.UtcNow;
             // sherpa-onnx hands back a dead engine rather than an error for missing files.
-            if (!KokoroVoice.IsInstalledIn(request.ModelFolder)) throw new KokoroException(KokoroException.ModelNotLoadedMessage);
+            if (!model.Package.HasRequiredFiles(request.ModelFolder)) throw new KokoroException(KokoroException.ModelNotLoadedMessage);
             try
             {
                 tts = new OfflineTts(Config(request));
@@ -91,7 +91,7 @@ internal sealed class KokoroHelperEngine : IDisposable
             }
             loadedLanguageHint = request.LanguageHint;
             loadedModelFolder = request.ModelFolder;
-            Console.Error.WriteLine($"kokoro: model loaded in {(DateTime.UtcNow - startedAt).TotalSeconds:0.0} s");
+            Console.Error.WriteLine($"{model.Info.Id}: model loaded in {(DateTime.UtcNow - startedAt).TotalSeconds:0.0} s");
         }
         var audio = tts.Generate(request.Text, 1.0f, request.SpeakerId);
         try
@@ -106,23 +106,33 @@ internal sealed class KokoroHelperEngine : IDisposable
         }
     }
 
-    private static OfflineTtsConfig Config(KokoroEngineRequest request)
+    private OfflineTtsConfig Config(KokoroEngineRequest request)
     {
-        var model = request.ModelFolder;
+        var folder = request.ModelFolder;
         var config = new OfflineTtsConfig();
-        config.Model.Kokoro.Model = Path.Combine(model, "model.onnx");
-        config.Model.Kokoro.Voices = Path.Combine(model, "voices.bin");
-        config.Model.Kokoro.Tokens = Path.Combine(model, "tokens.txt");
-        config.Model.Kokoro.DataDir = Path.Combine(model, "espeak-ng-data");
-        config.Model.Kokoro.DictDir = Path.Combine(model, "dict");
-        config.Model.Kokoro.LengthScale = 1.0f;
-        if (request.LanguageHint is "en-us" or "zh")
+        if (model.Choice == SpeechVoiceChoice.Piper)
         {
-            config.Model.Kokoro.Lexicon = string.Join(",", new[] { "lexicon-us-en.txt", "lexicon-zh.txt" }.Select(name => Path.Combine(model, name)));
+            config.Model.Vits.Model = Path.Combine(folder, "fr_FR-siwis-medium.onnx");
+            config.Model.Vits.Tokens = Path.Combine(folder, "tokens.txt");
+            config.Model.Vits.DataDir = Path.Combine(folder, "espeak-ng-data");
         }
         else
         {
-            config.Model.Kokoro.Lang = request.LanguageHint;
+            config.Model.Kokoro.Model = Path.Combine(folder, "model.onnx");
+            config.Model.Kokoro.Voices = Path.Combine(folder, "voices.bin");
+            config.Model.Kokoro.Tokens = Path.Combine(folder, "tokens.txt");
+            config.Model.Kokoro.DataDir = Path.Combine(folder, "espeak-ng-data");
+            config.Model.Kokoro.DictDir = Path.Combine(folder, "dict");
+            config.Model.Kokoro.LengthScale = 1.0f;
+            if (request.LanguageHint is "en-us" or "zh")
+            {
+                config.Model.Kokoro.Lexicon = string.Join(",", new[] { "lexicon-us-en.txt", "lexicon-zh.txt" }
+                    .Select(name => Path.Combine(folder, name)));
+            }
+            else
+            {
+                config.Model.Kokoro.Lang = request.LanguageHint;
+            }
         }
         config.Model.NumThreads = SherpaHelperMain.ThreadCount;
         config.Model.Provider = "cpu";

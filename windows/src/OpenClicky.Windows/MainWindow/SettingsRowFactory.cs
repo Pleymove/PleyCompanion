@@ -49,6 +49,7 @@ internal sealed partial class SettingsRowFactory(MainWindowServices services, IM
             ?? ClickyRow(item, query)
             ?? ModelsRow(item, query)
             ?? VoiceRow(item, query)
+            ?? VoiceModelRow(item, query)
             ?? OrbRow(item, query)
             ?? PluginsRow(item, query)
             ?? KeyboardRow(item, query)

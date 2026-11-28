@@ -2,7 +2,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $BaselineInstaller,
-    [Parameter(Mandatory)] [string] $Installer
+    [Parameter(Mandatory)] [string] $Installer,
+    [version] $ExpectedBaselineVersion = '0.12.1.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,19 +49,22 @@ function Assert-StartsWithoutTour {
 Install-PleyCompanion $BaselineInstaller (Join-Path $env:RUNNER_TEMP 'pley-baseline-setup.log')
 $executable = Join-Path $installDirectory 'current/PleyCompanion.exe'
 $baselineVersion = [version](Get-Item $executable).VersionInfo.FileVersion
-if ($baselineVersion -ne [version]'0.12.1.0') { throw "Expected the 0.12.1 baseline, installed $baselineVersion." }
+if ($baselineVersion -ne $ExpectedBaselineVersion) { throw "Expected $ExpectedBaselineVersion, installed $baselineVersion." }
 
 $shell = Join-Path $profileDirectory 'shell.json'
 $preferences = Join-Path $profileDirectory 'preferences.json'
 $models = Join-Path $profileDirectory 'Models/Parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8'
 $model = Join-Path $models 'tokens.txt'
-New-Item -ItemType Directory -Path $models | Out-Null
-'{"language":"de","speechVoice":"mac","token":"ci-fake-token","openaiApiKey":"ci-fake-key","backendUrl":"http://127.0.0.1:1","extra":42}' |
+$kokoro = Join-Path $profileDirectory 'Models/Kokoro/kokoro-multi-lang-v1_0'
+$voices = Join-Path $kokoro 'voices.bin'
+New-Item -ItemType Directory -Path $models, $kokoro | Out-Null
+'{"language":"de","speechVoice":"mac","kokoroSpeaker":30,"transcriptionProvider":"offline","anthropicApiKey":"ci-fake-anthropic-key","token":"ci-fake-token","openaiApiKey":"ci-fake-key","backendUrl":"http://127.0.0.1:1","extra":42}' |
     Set-Content -LiteralPath $shell -Encoding utf8NoBOM
 '{"dictation.engine":"moonshine","dictation.language":"en-GB","dictation.key":"rightShift","openclicky.firstRunTour.step":"dictate","isOpenClickyRealtimeVoiceEnabled":false}' |
     Set-Content -LiteralPath $preferences -Encoding utf8NoBOM
 'ci-model-file' | Set-Content -LiteralPath $model
-$hashes = Get-FileHash -LiteralPath @($shell, $preferences, $model)
+'ci-voice-file' | Set-Content -LiteralPath $voices
+$hashes = Get-FileHash -LiteralPath @($shell, $preferences, $model, $voices)
 
 Install-PleyCompanion $Installer (Join-Path $env:RUNNER_TEMP 'pley-phase2-setup.log')
 $newVersion = [version](Get-Item $executable).VersionInfo.FileVersion
@@ -74,12 +78,14 @@ Assert-StartsWithoutTour
 $upgradedShell = Get-Content -LiteralPath $shell -Raw | ConvertFrom-Json
 $upgradedPreferences = Get-Content -LiteralPath $preferences -Raw | ConvertFrom-Json
 if ($upgradedShell.language -ne 'de' -or $upgradedShell.speechVoice -ne 'mac' -or $upgradedShell.token -ne 'ci-fake-token' -or
-    $upgradedShell.openaiApiKey -ne 'ci-fake-key' -or $upgradedShell.extra -ne 42 -or
+    $upgradedShell.openaiApiKey -ne 'ci-fake-key' -or $upgradedShell.extra -ne 42 -or $upgradedShell.kokoroSpeaker -ne 30 -or
+    $upgradedShell.anthropicApiKey -ne 'ci-fake-anthropic-key' -or $upgradedShell.transcriptionProvider -ne 'offline' -or
     $upgradedPreferences.'dictation.engine' -ne 'moonshine' -or $upgradedPreferences.'dictation.language' -ne 'en-GB' -or
-    $upgradedPreferences.'dictation.key' -ne 'rightShift' -or (Get-FileHash -LiteralPath $model).Hash -ne $hashes[2].Hash) {
+    $upgradedPreferences.'dictation.key' -ne 'rightShift' -or (Get-FileHash -LiteralPath $model).Hash -ne $hashes[2].Hash -or
+    (Get-FileHash -LiteralPath $voices).Hash -ne $hashes[3].Hash) {
     throw 'The first upgraded launch changed the former profile.'
 }
-"Upgrade $baselineVersion → $newVersion. Setup preserved all three seeded files byte for byte and the app retained the prior choices on launch."
+"Upgrade $baselineVersion → $newVersion. Setup preserved all four seeded files byte for byte and the app retained the prior choices on launch."
 
 Move-Item -LiteralPath $profileDirectory -Destination $preservedDirectory
 Assert-StartsWithoutTour

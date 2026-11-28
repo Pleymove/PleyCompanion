@@ -97,9 +97,9 @@ public sealed class DictationWindowNavigationTests
     }
 
     [Fact]
-    public void TheSidebarListsSixPages()
+    public void TheSidebarListsTheVoiceModelPages()
     {
-        Assert.Equal(["Dictation", "Clicky", "Island", "Keys & Account", "Privacy", "General"],
+        Assert.Equal(["Dictation", "Clicky", "Reconnaissance vocale", "Synthèse vocale", "Island", "Keys & Account", "Privacy", "General"],
             DictationDestination.SidebarOrder.Select(destination => destination.Title));
     }
 

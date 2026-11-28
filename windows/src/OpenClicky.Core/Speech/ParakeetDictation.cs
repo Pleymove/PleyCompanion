@@ -1,207 +1,48 @@
-// Ports Parakeet/ParakeetDictation.swift.
-//
-// Parakeet: an offline dictation engine better than the one Windows has. Windows' own offline
-// recogniser (Windows.Media.SpeechRecognition) is years behind, like SFSpeechRecognizer before
-// macOS 26. NVIDIA's Parakeet TDT 0.6B v3 runs on any PC's CPU, writes its own punctuation and
-// capitals, and hears 25 European languages. No Indian languages: those stay with the Windows
-// recogniser or Sarvam.
-//
-// The engine is the sherpa-onnx package that already ships for Kokoro; only the model (465 MB) is
-// downloaded. The loaded model lives in a helper process that starts the moment the dictation key
-// goes down (it loads while the person speaks) and ends after three minutes without a take, or at
-// once under memory pressure.
-
-using CommunityToolkit.Mvvm.ComponentModel;
 using OpenClicky.Core.Configuration;
 using OpenClicky.Core.Dictation;
 using OpenClicky.Core.Platform;
 
 namespace OpenClicky.Core.Speech;
 
-public sealed partial class ParakeetDictation : ObservableObject
+/// <summary>A Parakeet TDT model shared by dictation, the assistant and the microphone test.</summary>
+public sealed class ParakeetDictation : DownloadableVoiceModel
 {
-    /// <summary>The app's Parakeet (assigned at startup).</summary>
     public static ParakeetDictation? Shared { get; set; }
-
     public const string HelperFlag = "--openclicky-parakeet-helper";
 
-    public static ModelDownload ModelDownload { get; } = new(
-        new Uri("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"),
-        "1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9", 487_211_443);
-
-    // The model's facts (size, languages, folder, installed) have one home, Dictation's
-    // ParakeetFacts, which the resolver and Settings read too; these forward to it.
-
-    /// <summary>What Settings says before the download, rounded.</summary>
+    public static ModelDownload ModelDownload => VoiceModelCatalog.ParakeetV3.Package.Download;
     public const string DownloadSizeText = ParakeetFacts.DownloadSizeText;
-
-    /// <summary>The languages Parakeet v3 hears (ISO 639-1).</summary>
     public static IReadOnlySet<string> LanguageCodes => ParakeetFacts.LanguageCodes;
-
-    /// <summary>Whether it hears <paramref name="bareLanguageCode"/> (null: the dictation language is on
-    /// auto-detect, which Parakeet does itself).</summary>
-    public static bool Hears(string? bareLanguageCode) => ParakeetFacts.Hears(bareLanguageCode);
-
-    public static string Folder => ParakeetFacts.Folder;
-    public static string ModelFolder => ParakeetFacts.ModelFolder;
-
+    public static bool Hears(string? language) => ParakeetFacts.Hears(language);
     public static bool IsInstalled => ParakeetFacts.IsInstalled;
+    public static bool IsInstalledIn(string folder) => ParakeetFacts.IsInstalledIn(folder);
 
-    public static bool IsInstalledIn(string modelFolder) => ParakeetFacts.IsInstalledIn(modelFolder);
+    public static LocalSttModel SelectedModel => VoiceModelCatalog.SelectedParakeet(OpenClickyConfiguration.Settings.ParakeetModel);
 
-    public const int IdleUnloadSeconds = 180;
+    public static ParakeetDictation? Current => VoiceModelRuntime.Shared?.FindRecognizer(SelectedModel) ?? Shared;
 
-    private readonly SherpaHelperClient engine;
-    private readonly IProcessRunner processRunner;
-    private readonly IMainThread? mainThread;
-    private readonly object taskLock = new();
-    private CancellationTokenSource? downloadCancellation;
-    private int warming;
-    private CancellationTokenSource? idleUnloadCancellation;
-
-    [ObservableProperty]
-    private ModelInstallState state;
-
-    public ParakeetDictation(IProcessRunner processRunner, string helperExecutablePath, IMainThread? mainThread = null)
+    public static string? UnavailableReason(string? language)
     {
-        this.processRunner = processRunner;
-        this.mainThread = mainThread;
-        engine = new SherpaHelperClient(HelperFlag, "parakeet", processRunner, helperExecutablePath);
-        state = IsInstalled ? ModelInstallState.Installed : ModelInstallState.NotInstalled;
+        var model = SelectedModel;
+        var installed = VoiceModelRuntime.Shared?.FindRecognizer(model)?.IsModelInstalled
+            ?? (model == VoiceModelCatalog.ParakeetV3 && ParakeetFacts.IsInstalled);
+        return DictationEngineResolver.ParakeetUnavailableReason(installed, language, model);
     }
 
-    private void SetState(ModelInstallState newState)
-    {
-        if (mainThread is null || mainThread.IsMainThread) State = newState;
-        else mainThread.Post(() => State = newState);
-    }
+    public ParakeetDictation(IProcessRunner processes, string executablePath, IMainThread? mainThread = null)
+        : this(VoiceModelCatalog.ParakeetV3, processes, executablePath, mainThread) { }
 
-    // MARK: Hearing
+    public ParakeetDictation(LocalSttModel model, IProcessRunner processes, string executablePath, IMainThread? mainThread)
+        : base(model.Info, model.Package, HelperFlag, processes, executablePath, mainThread) { }
 
-    /// <summary>The dictation key went down: start the helper and load the model while the take is spoken.</summary>
-    public void PrepareForTake()
-    {
-        if (!IsInstalled || engine.IsRunning || Interlocked.Exchange(ref warming, 1) != 0) return;
-        _ = Task.Run(async () =>
-        {
-            var startedAt = DateTime.UtcNow;
-            try { await TranscribeAsync([]).ConfigureAwait(false); }
-            catch (Exception) { return; }
-            finally { Interlocked.Exchange(ref warming, 0); }
-            AppLog.Write($"parakeet: ready in {(DateTime.UtcNow - startedAt).TotalSeconds:0.0} s");
-        });
-    }
+    public void PrepareForTake() => WarmUp(() => TranscribeAsync([]));
 
-    /// <summary>The words in 16 kHz mono PCM16 audio.</summary>
+    /// <summary>Decode 16 kHz mono PCM16 audio.</summary>
     public async Task<string> TranscribeAsync(byte[] pcm16, CancellationToken cancellationToken = default)
     {
-        if (!IsInstalled) throw new ParakeetException(ParakeetException.NotInstalledMessage);
-        var request = new ParakeetEngineRequest(Convert.ToBase64String(pcm16), ModelFolder);
-        try
-        {
-            var reply = await engine.SendAsync<ParakeetEngineRequest, ParakeetEngineReply>(request, cancellationToken).ConfigureAwait(false);
-            return reply.Text;
-        }
-        finally
-        {
-            ScheduleIdleUnload();
-        }
-    }
-
-    private void ScheduleIdleUnload()
-    {
-        var cancellation = new CancellationTokenSource();
-        lock (taskLock)
-        {
-            idleUnloadCancellation?.Cancel();
-            idleUnloadCancellation = cancellation;
-        }
-        _ = Task.Run(async () =>
-        {
-            try { await Task.Delay(TimeSpan.FromSeconds(IdleUnloadSeconds), cancellation.Token).ConfigureAwait(false); }
-            catch (OperationCanceledException) { return; }
-            await UnloadAsync("idle").ConfigureAwait(false);
-        });
-    }
-
-    /// <summary>Windows reports low memory: the helper goes; the next take loads it again.</summary>
-    public void UnloadForMemoryPressure() => _ = UnloadAsync("memory pressure");
-
-    private async Task UnloadAsync(string reason)
-    {
-        lock (taskLock)
-        {
-            idleUnloadCancellation?.Cancel();
-            idleUnloadCancellation = null;
-        }
-        if (await engine.UnloadAsync().ConfigureAwait(false)) AppLog.Write($"parakeet: unloaded ({reason})");
-    }
-
-    // MARK: Download
-
-    public void Download()
-    {
-        CancellationTokenSource cancellation;
-        lock (taskLock)
-        {
-            if (downloadCancellation is not null || IsInstalled)
-            {
-                if (IsInstalled) SetState(ModelInstallState.Installed);
-                return;
-            }
-            cancellation = new CancellationTokenSource();
-            downloadCancellation = cancellation;
-        }
-        SetState(ModelInstallState.Downloading(0));
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await ModelDownload.InstallAsync(Folder, fraction =>
-                {
-                    // A late progress report must not undo the installed state.
-                    if (!State.IsBusy) return;
-                    SetState(fraction >= 1 ? ModelInstallState.Unpacking : ModelInstallState.Downloading(fraction));
-                }, processRunner, cancellation.Token).ConfigureAwait(false);
-                if (!IsInstalled) throw ModelDownloadException.UnpackFailed("the files weren't where they should be");
-                AppLog.Write("parakeet: installed");
-                SetState(ModelInstallState.Installed);
-            }
-            catch (OperationCanceledException)
-            {
-                SetState(ModelInstallState.NotInstalled);
-            }
-            catch (Exception error)
-            {
-                AppLog.Write($"parakeet: download failed: {error.Message}");
-                SetState(ModelInstallState.Failed(error.Message));
-            }
-            finally
-            {
-                lock (taskLock)
-                {
-                    if (ReferenceEquals(downloadCancellation, cancellation)) downloadCancellation = null;
-                }
-                cancellation.Dispose();
-            }
-        });
-    }
-
-    public void CancelDownload()
-    {
-        lock (taskLock) downloadCancellation?.Cancel();
-    }
-
-    /// <summary>Deletes the model and ends the helper.</summary>
-    public async Task RemoveAsync()
-    {
-        lock (taskLock) downloadCancellation?.Cancel();
-        await engine.UnloadAsync().ConfigureAwait(false);
-        try { if (Directory.Exists(Folder)) Directory.Delete(Folder, recursive: true); }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            AppLog.Write($"parakeet: could not remove the model: {error.Message}");
-        }
-        SetState(ModelInstallState.NotInstalled);
+        var request = new ParakeetEngineRequest(Convert.ToBase64String(pcm16), Package.ModelFolder);
+        var reply = await RunAsync<ParakeetEngineRequest, ParakeetEngineReply>(request,
+            new ParakeetException(ParakeetException.NotInstalledMessage), cancellationToken).ConfigureAwait(false);
+        return reply.Text;
     }
 }

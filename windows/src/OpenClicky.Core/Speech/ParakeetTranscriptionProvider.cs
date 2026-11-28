@@ -20,12 +20,12 @@ public sealed class ParakeetTranscriptionProvider : IBuddyTranscriptionProvider
     /// for the stored dictation language.</param>
     public ParakeetTranscriptionProvider(Func<string?>? unavailableReason = null, Func<ParakeetDictation?>? dictation = null)
     {
-        this.dictation = dictation ?? (() => ParakeetDictation.Shared);
+        this.dictation = dictation ?? (() => ParakeetDictation.Current);
         this.unavailableReason = unavailableReason
-            ?? (() => DictationEngineResolver.ParakeetUnavailableReason(ParakeetFacts.IsInstalled, DictationSettings.StoredLanguage().BareCode));
+            ?? (() => ParakeetDictation.UnavailableReason(DictationSettings.StoredLanguage().BareCode));
     }
 
-    public string DisplayName => "Parakeet (on this PC)";
+    public string DisplayName => ParakeetDictation.SelectedModel.Info.Name;
     public bool RequiresSpeechRecognitionPermission => false;
     public bool IsConfigured => UnavailableExplanation is null;
     public string? UnavailableExplanation => unavailableReason();

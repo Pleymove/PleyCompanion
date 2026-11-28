@@ -31,6 +31,7 @@ public enum SpeechVoiceChoice
     [RawValue("sarvam")] Sarvam,
     [RawValue("kokoro")] Kokoro,
     [RawValue("mac")] Mac,
+    [RawValue("piper-siwis")] Piper,
 }
 
 public static class SpeechVoiceChoices
@@ -56,6 +57,7 @@ public static class SpeechVoiceChoices
         SpeechVoiceChoice.Polly => "Amazon Polly",
         SpeechVoiceChoice.Sarvam => "Sarvam",
         SpeechVoiceChoice.Kokoro => "Kokoro (on this PC)",
+        SpeechVoiceChoice.Piper => "Piper · Siwis",
         _ => "This PC",
     };
 
@@ -73,7 +75,8 @@ public static class SpeechVoiceChoices
     private static bool Has(string? key) => !string.IsNullOrWhiteSpace(key);
 
     /// <summary>Whether this voice can speak right now in <paramref name="languageCode"/> with these settings.</summary>
-    public static bool CanSpeak(SpeechVoiceChoice choice, OpenClickyShellSettings settings, bool hasAccount, bool kokoroInstalled, string languageCode) => choice switch
+    public static bool CanSpeak(SpeechVoiceChoice choice, OpenClickyShellSettings settings, bool hasAccount, bool kokoroInstalled, string languageCode,
+        Func<SpeechVoiceChoice, bool>? localModelInstalled = null) => choice switch
     {
         SpeechVoiceChoice.Automatic => false,
         SpeechVoiceChoice.Account => hasAccount,
@@ -84,6 +87,8 @@ public static class SpeechVoiceChoices
         SpeechVoiceChoice.Polly => AWSCredentials.TryParse(settings.AmazonPollyCredentials) is not null && CloudVoiceRequests.PollyVoice(languageCode) is not null,
         SpeechVoiceChoice.Sarvam => Has(settings.SarvamKey) && SarvamSpeechWire.SpeechLanguageCode(languageCode) is not null,
         SpeechVoiceChoice.Kokoro => kokoroInstalled && KokoroVoice.SpeakerFor(languageCode, null) is not null,
+        SpeechVoiceChoice.Piper => (localModelInstalled?.Invoke(choice) ?? false)
+            && VoiceModelCatalog.Piper.SpeakerFor(languageCode, null) is not null,
         _ => true,
     };
 
@@ -92,14 +97,15 @@ public static class SpeechVoiceChoices
     /// (picking it downloads it), and this PC. The one already picked stays listed even if its key
     /// went, so the picker never shows a blank.
     /// </summary>
-    public static IReadOnlyList<SpeechVoiceChoice> Offered(OpenClickyShellSettings settings, bool hasAccount, string languageCode)
+    public static IReadOnlyList<SpeechVoiceChoice> Offered(OpenClickyShellSettings settings, bool hasAccount, string languageCode,
+        Func<SpeechVoiceChoice, bool>? localModelInstalled = null)
     {
         var picked = FromStored(settings.SpeechVoice);
         return AllCases.Where(choice => choice switch
         {
             SpeechVoiceChoice.Automatic or SpeechVoiceChoice.Mac => true,
             SpeechVoiceChoice.Kokoro => choice == picked || KokoroVoice.SpeakerFor(languageCode, null) is not null,
-            _ => choice == picked || CanSpeak(choice, settings, hasAccount, kokoroInstalled: false, languageCode),
+            _ => choice == picked || CanSpeak(choice, settings, hasAccount, kokoroInstalled: false, languageCode, localModelInstalled),
         }).ToList();
     }
 
@@ -112,14 +118,19 @@ public static class SpeechVoiceChoices
     /// answers in a row) Automatic passes it by; a voice picked by hand is never passed by.
     /// </summary>
     public static SpeechVoiceChoice Resolve(OpenClickyShellSettings settings, bool hasAccount, bool kokoroInstalled, string languageCode,
-                                            bool accountVoiceIsResting = false, Func<bool>? thisPCSpeaksLanguage = null)
+                                            bool accountVoiceIsResting = false, Func<bool>? thisPCSpeaksLanguage = null,
+                                            Func<SpeechVoiceChoice, bool>? localModelInstalled = null)
     {
         var picked = FromStored(settings.SpeechVoice);
         if (picked == SpeechVoiceChoice.Kokoro && languageCode == "fr")
             return kokoroInstalled ? SpeechVoiceChoice.Kokoro : SpeechVoiceChoice.Mac;
-        var kokoroCantSpeakLanguage = picked == SpeechVoiceChoice.Kokoro && KokoroVoice.SpeakerFor(languageCode, null) is null;
+        if (picked == SpeechVoiceChoice.Piper && languageCode == "fr")
+            return CanSpeak(picked, settings, hasAccount, kokoroInstalled, languageCode, localModelInstalled)
+                ? picked : FastestLocalVoice(kokoroInstalled, languageCode);
+        var localModel = VoiceModelCatalog.FindVoice(picked);
+        var localModelCantSpeak = localModel is not null && localModel.SpeakerFor(languageCode, null) is null;
         var automaticCandidates = accountVoiceIsResting ? AutomaticOrder.Where(choice => choice != SpeechVoiceChoice.Account).ToList() : AutomaticOrder;
-        IReadOnlyList<SpeechVoiceChoice> candidates = picked == SpeechVoiceChoice.Automatic || kokoroCantSpeakLanguage
+        IReadOnlyList<SpeechVoiceChoice> candidates = picked == SpeechVoiceChoice.Automatic || localModelCantSpeak
             ? automaticCandidates
             : [picked, SpeechVoiceChoice.Account];
         // This PC's voice in a language Windows has no voice for (Urdu, 2026-11-04) says nothing at all: a voice with a key that
@@ -127,7 +138,7 @@ public static class SpeechVoiceChoices
         var pcSpeaks = thisPCSpeaksLanguage ?? (() => true);
         foreach (var candidate in candidates)
         {
-            if (!CanSpeak(candidate, settings, hasAccount, kokoroInstalled, languageCode)) continue;
+            if (!CanSpeak(candidate, settings, hasAccount, kokoroInstalled, languageCode, localModelInstalled)) continue;
             if (candidate == SpeechVoiceChoice.Mac && !pcSpeaks()) break;
             return candidate;
         }
@@ -135,7 +146,7 @@ public static class SpeechVoiceChoices
         {
             foreach (var candidate in automaticCandidates)
             {
-                if (candidate != SpeechVoiceChoice.Mac && CanSpeak(candidate, settings, hasAccount, kokoroInstalled, languageCode)) return candidate;
+                if (candidate != SpeechVoiceChoice.Mac && CanSpeak(candidate, settings, hasAccount, kokoroInstalled, languageCode, localModelInstalled)) return candidate;
             }
         }
         return SpeechVoiceChoice.Mac;
@@ -148,8 +159,11 @@ public static class SpeechVoiceChoices
         var languageCode = ReplyLanguage.CurrentCode;
         return Resolve(OpenClickyConfiguration.Settings, OpenClickyConfiguration.HasAccountToken,
             voices?.KokoroIsInstalled() ?? false, languageCode, AccountVoiceRest.IsResting,
-            () => ThisPCSpeaks(voices, languageCode));
+            () => ThisPCSpeaks(voices, languageCode), IsLocalVoiceInstalled);
     }
+
+    public static bool IsLocalVoiceInstalled(SpeechVoiceChoice choice) =>
+        VoiceModelRuntime.Shared?.FindVoice(choice)?.IsModelInstalled ?? false;
 
     /// <summary>Whether Windows has a voice for <paramref name="languageCode"/> (English always; asked once per language).</summary>
     private static bool ThisPCSpeaks(SpeechVoiceServices? voices, string languageCode)
@@ -186,7 +200,7 @@ public sealed record SpeechVoiceServices(
 
     /// <summary>The live services: KokoroVoice.Shared (once the app assigned it) and this PC's voice.</summary>
     public static SpeechVoiceServices ForThisPC(ISystemVoice systemVoice) => new(
-        () => KokoroVoice.IsInstalled,
+        () => KokoroVoice.Shared?.IsModelInstalled ?? KokoroVoice.IsInstalled,
         (text, languageCode, cancellationToken) =>
             (KokoroVoice.Shared ?? throw new KokoroException(KokoroException.NotInstalledMessage)).AudioAsync(text, languageCode, cancellationToken),
         systemVoice);
@@ -530,6 +544,10 @@ public static class CloudVoiceSpeaker
                 var key = Key(settings.SarvamKey, "Sarvam");
                 return await SarvamSpeechWire.Required.SpeechAsync(key, text, speechLanguage, cancellationToken).ConfigureAwait(false);
             }
+            case SpeechVoiceChoice.Piper:
+                var piper = VoiceModelRuntime.Shared?.FindVoice(voice)
+                    ?? throw new InvalidOperationException("Piper n’est pas chargé.");
+                return await piper.AudioAsync(text, languageCode, cancellationToken).ConfigureAwait(false);
             case SpeechVoiceChoice.Kokoro:
                 return await (services ?? SpeechVoiceServices.Required).KokoroAudio(text, languageCode, cancellationToken).ConfigureAwait(false);
             default:

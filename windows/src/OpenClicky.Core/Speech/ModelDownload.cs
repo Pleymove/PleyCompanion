@@ -23,13 +23,14 @@ public sealed record ModelDownload(Uri Url, string Sha256, long Bytes)
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "tar.exe");
 
     /// <summary>Downloads, checks and unpacks into <paramref name="folder"/>, reporting the fraction downloaded.</summary>
-    public async Task InstallAsync(string folder, Action<double> progress, IProcessRunner unpacker, CancellationToken cancellationToken = default)
+    public async Task InstallAsync(string folder, Action<double> progress, IProcessRunner unpacker, CancellationToken cancellationToken = default,
+        Func<string, bool>? validateStaging = null)
     {
         Directory.CreateDirectory(folder);
         var archive = await FetchAsync(folder, written => progress(Math.Min(1, written / (double)Bytes)), cancellationToken).ConfigureAwait(false);
         try
         {
-            await UnpackAsync(archive, folder, unpacker, cancellationToken).ConfigureAwait(false);
+            await UnpackAsync(archive, folder, unpacker, cancellationToken, validateStaging).ConfigureAwait(false);
         }
         finally
         {
@@ -67,6 +68,7 @@ public sealed record ModelDownload(Uri Url, string Sha256, long Bytes)
                     {
                         await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                         written += read;
+                        if (written > Bytes) throw ModelDownloadException.DownloadFailed("l’archive dépasse la taille attendue");
                         // A report per megabyte is plenty for a progress bar.
                         if (written - lastReported >= 1 << 20)
                         {
@@ -118,7 +120,7 @@ public sealed record ModelDownload(Uri Url, string Sha256, long Bytes)
     /// mid-unpack and failed with "the offline speech model didn't load" (2026-10-29). A folder move on one volume is
     /// immediate, so the model appears whole or not at all.
     /// </summary>
-    internal static async Task UnpackAsync(string archive, string folder, IProcessRunner unpacker, CancellationToken cancellationToken)
+    internal static async Task UnpackAsync(string archive, string folder, IProcessRunner unpacker, CancellationToken cancellationToken, Func<string, bool>? validateStaging = null)
     {
         var staging = Path.Combine(folder, ".unpacking");
         TryDeleteFolder(staging);
@@ -131,6 +133,9 @@ public sealed record ModelDownload(Uri Url, string Sha256, long Bytes)
                 Arguments = ["-xjf", archive, "-C", staging],
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (result.ExitCode != 0) throw ModelDownloadException.UnpackFailed($"tar exited with {result.ExitCode}");
+            cancellationToken.ThrowIfCancellationRequested();
+            if (validateStaging is not null && !validateStaging(staging))
+                throw ModelDownloadException.UnpackFailed("les fichiers requis sont absents");
             cancellationToken.ThrowIfCancellationRequested();
             foreach (var entry in Directory.EnumerateFileSystemEntries(staging))
             {
@@ -203,14 +208,16 @@ public abstract record ModelInstallState
     public sealed record NotInstalledState : ModelInstallState;
     public sealed record DownloadingState(double Fraction) : ModelInstallState;
     public sealed record UnpackingState : ModelInstallState;
+    public sealed record RemovingState : ModelInstallState;
     public sealed record InstalledState : ModelInstallState;
     public sealed record FailedState(string Message) : ModelInstallState;
 
     public static ModelInstallState NotInstalled { get; } = new NotInstalledState();
     public static ModelInstallState Unpacking { get; } = new UnpackingState();
+    public static ModelInstallState Removing { get; } = new RemovingState();
     public static ModelInstallState Installed { get; } = new InstalledState();
     public static ModelInstallState Downloading(double fraction) => new DownloadingState(fraction);
     public static ModelInstallState Failed(string message) => new FailedState(message);
 
-    public bool IsBusy => this is DownloadingState or UnpackingState;
+    public bool IsBusy => this is DownloadingState or UnpackingState or RemovingState;
 }

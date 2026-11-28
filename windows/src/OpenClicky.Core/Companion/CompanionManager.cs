@@ -441,7 +441,7 @@ public sealed partial class CompanionManager : ObservableObject, ICompanionSetti
         // question); hands-free answers in OpenAI's realtime voice and never needs it.
         VoiceStateChanged += state =>
         {
-            if (state is CompanionVoiceState.Listening or CompanionVoiceState.Processing && !IsAlwaysListening) KokoroVoice.Shared?.PrepareForAnswer();
+            if (state is CompanionVoiceState.Listening or CompanionVoiceState.Processing && !IsAlwaysListening) VoiceModelRuntime.Shared?.FindVoice(SpeechVoiceChoices.Current())?.PrepareForAnswer();
             // A spoken answer counts as a use.
             if (state == CompanionVoiceState.Responding) NoteUse();
         };
@@ -557,8 +557,7 @@ public sealed partial class CompanionManager : ObservableObject, ICompanionSetti
     public void UnloadForMemoryPressure()
     {
         AppLog.Write("memory: low; unloading the local models");
-        KokoroVoice.Shared?.UnloadForMemoryPressure();
-        ParakeetDictation.Shared?.UnloadForMemoryPressure();
+        VoiceModelRuntime.Shared?.UnloadForMemoryPressure();
         MoonshineDictation.Shared?.UnloadForMemoryPressure();
     }
 
